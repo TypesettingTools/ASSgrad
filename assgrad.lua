@@ -1,6 +1,6 @@
 --[=[ You are not legally allowed to look at this code because it is proprietary. STOP BREAKING THE LAW ]=]--
 
-script_name = "ULTIMATESUPERGRADIENT"
+script_name = "ASSGRAD"
 script_description = "THE ULTIMATE METHOD OF SCRIPT BLOATING HAS FINALLY ARRIVED"
 script_author = "torque"
 script_version = "9001"
@@ -120,33 +120,40 @@ function GiantMessyFunction(sub,sel)
     line.text = line.text:gsub("\\org%([%-%d%.]+,[%-%d%.]+%)","")
     line.text = line.text:gsub("\\1?c&H%X%X%X%X%X%X&","")
     local i = 0
+    local it = 0
     local orgtext = line.text
     line.height = line.height*line.yscl/100
     line.width = line.width*line.xscl/100
-    local len = round((line.height-line.descent/2))-1
+    local bs = 3 -- band size. Nothing more, nothing less.
+    local len = math.ceil((line.height-line.descent/2))+bs-1
     local colort = {
-      {0,0,0,};
+      {0,0,255,};
       {255,0,0,};
-      {50,255,0,};
+      {0,255,0,};
     }
     local ind = 1
-    local pclen = round(len/(#colort-1)) -- transition lengths
+    local pclen = math.floor(len/(#colort-1)) -- transition lengths
     for y = -round((line.height-line.descent/2)/2),round((line.height-line.descent/2)/2)-1 do
       --aegisub.log(1,y.."\n")
       local tlx = line.xpos-((line.width/2)*dcos(line.zrot)-y*dsin(line.zrot))
       local tly = line.ypos+(y*dcos(line.zrot)+(line.width/2)*dsin(line.zrot))
       local trx = line.xpos+((line.width/2)*dcos(line.zrot)+y*dsin(line.zrot))
       local try = line.ypos+(y*dcos(line.zrot)-(line.width/2)*dsin(line.zrot))
-      local brx = line.xpos+((line.width/2)*dcos(line.zrot)+y*dsin(line.zrot))+1*dsin(line.zrot)
-      local bry = line.ypos+(y*dcos(line.zrot)-(line.width/2)*dsin(line.zrot))+1*dcos(line.zrot)
-      local blx = line.xpos-((line.width/2)*dcos(line.zrot)-y*dsin(line.zrot))+1*dsin(line.zrot)
-      local bly = line.ypos+(y*dcos(line.zrot)+(line.width/2)*dsin(line.zrot))+1*dcos(line.zrot)
-      local clip = string.format("m %.0f %.0f l %.0f %.0f %.0f %.0f %.0f %.0f",tlx,tly,trx,try,brx,bry,blx,bly)
+      local brx = line.xpos+((line.width/2)*dcos(line.zrot)+y*dsin(line.zrot))+bs*dsin(line.zrot)
+      local bry = line.ypos+(y*dcos(line.zrot)-(line.width/2)*dsin(line.zrot))+bs*dcos(line.zrot)
+      local blx = line.xpos-((line.width/2)*dcos(line.zrot)-y*dsin(line.zrot))+bs*dsin(line.zrot)
+      local bly = line.ypos+(y*dcos(line.zrot)+(line.width/2)*dsin(line.zrot))+bs*dcos(line.zrot)
+      local clip = string.format("m %d %d l %d %d %d %d %d %d",tlx,tly,trx,try,brx,bry,blx,bly)
+      --local clip2 = string.format("m %d %d l %d %d %d %d %d %d",math.ceil(tlx),math.ceil(tly),math.ceil(trx),math.ceil(try),math.ceil(brx),math.ceil(bry),math.ceil(blx),math.ceil(bly))
       local cur = math.floor(i/pclen)+1
       local color = string.format("%02X%02X%02X",round(colort[cur][1]+(colort[cur+1][1]-colort[cur][1])*(i%pclen+1)/pclen),round(colort[cur][2]+(colort[cur+1][2]-colort[cur][2])*(i%pclen+1)/pclen),round(colort[cur][3]+(colort[cur+1][3]-colort[cur][3])*(i%pclen+1)/pclen)) -- 255*i/len,0,0
       line.text = string.format("{\\c&H%s&\\clip(%s)\\pos(%.2f,%.2f)}",color,clip,line.xpos,line.ypos)..line.text
       i = i+1
+      --it = it+2
       sub.insert(v+i,line)
+      --line.text = orgtext
+      --line.text = string.format("{\\c&H%s&\\clip(%s)\\pos(%.2f,%.2f)}",color,clip2,line.xpos,line.ypos)..line.text
+      --sub.insert(v+it,line)
       line.text = orgtext
     end
   end
@@ -217,4 +224,4 @@ function round(num, idp) -- borrowed from the lua-users wiki
   return math.floor(num * mult + 0.5) / mult
 end
 
-aegisub.register_macro("ASSgrad","GRAD YOUR ASS LIKE NEVER BEFORE", GiantMessyFunction)
+aegisub.register_macro("ULTIMATE SUPERGRADIENT","GRAD YOUR ASS LIKE NEVER BEFORE", GiantMessyFunction)
