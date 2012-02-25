@@ -85,6 +85,10 @@ function GiantMessyFunction(sub,sel)
     line.styleref.fontname = line.fn
     line.styleref.fontsize = line.fs
     line.width, line.height, line.descent, line.extlead = aegisub.text_extents(line.styleref,line.text_stripped)
+    local strs = re.match(line.text,"{.*?\\\\p1.*?}(.+?)({.*?\\\\p0.*?}|$)")
+    if strs then
+      line.width, line.height, line.descent, line.extlead = GetSizeOfVectorObject(strs[2].str)
+    end
     line.num = v
     if line.margin_v ~= 0 then line._v = line.margin_v end
     if line.margin_l ~= 0 then line._l = line.margin_l end
@@ -146,6 +150,19 @@ function GiantMessyFunction(sub,sel)
       line.text = orgtext
     end
   end
+end
+
+function GetSizeOfVectorObject(vect)
+  local ix, iy = vect:match("^m ([%-%d]+) ([%-%d]+)")
+  local xmin, xmax, ymin, ymax
+  local function normalize(a,b)
+    if not xmax then xmax = tonumber(a)-ix elseif tonumber(a)-ix > xmax then xmax = tonumber(a)-ix end
+    if not xmin then xmin = tonumber(a)-ix elseif tonumber(a)-ix < xmin then xmin = tonumber(a)-ix end
+    if not ymax then ymax = tonumber(b)-iy elseif tonumber(b)-iy > ymax then ymax = tonumber(b)-iy end
+    if not ymin then ymin = tonumber(b)-iy elseif tonumber(b)-iy < ymin then ymin = tonumber(b)-iy end
+  end
+  vect = vect:gsub("([%-%d]+) ([%-%d]+)",normalize)
+  return xmax-xmin+1,ymax-ymin+1,0,0
 end
 
 function GetInfo(sub, line, styles, num) -- because camelcase
