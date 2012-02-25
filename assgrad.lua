@@ -7,14 +7,12 @@ script_version = "9001"
 require "karaskel"
 require "re"
 
-pi = 3.1415926535898
-
-function dcos(a) return math.cos(a*pi/180) end
-function dacos(a) return 180*math.acos(a)/pi end
-function dsin(a) return math.sin(a*pi/180) end
-function dasin(a) return 180*math.asin(a)/pi end
-function dtan(a) return math.tan(a*pi/180) end
-function datan(x,y) return 180*math.atan2(x,y)/pi end
+function dcos(a) return math.cos(a*math.pi/180) end
+function dacos(a) return 180*math.acos(a)/math.pi end
+function dsin(a) return math.sin(a*math.pi/180) end
+function dasin(a) return 180*math.asin(a)/math.pi end
+function dtan(a) return math.tan(a*math.pi/180) end
+function datan(x,y) return 180*math.atan2(x,y)/math.pi end
 
 fix = {}
 
@@ -82,8 +80,8 @@ function GiantMessyFunction(sub,sel)
     local line = sub[v]
     karaskel.preproc_line(sub, meta, styles, line)
     GetInfo(sub, line, styles, v)
-    line.styleref.scale_y = 100
-    line.styleref.scale_x = 100
+    line.styleref.scale_y = 100 -- line.yscl
+    line.styleref.scale_x = 100 -- line.xscl
     line.styleref.fontname = line.fn
     line.styleref.fontsize = line.fs
     line.width, line.height, line.descent, line.extlead = aegisub.text_extents(line.styleref,line.text_stripped)
@@ -119,6 +117,8 @@ function GiantMessyFunction(sub,sel)
     line.text = line.text:gsub("\\1?c&H%X%X%X%X%X%X&","")
     local i = 0
     local orgtext = line.text
+    line.height = line.height*line.yscl/100
+    line.width = line.width*line.xscl/100
     local len = round((line.height-line.descent/2))-1
     local colort = {
       {0,0,0,};
@@ -128,11 +128,19 @@ function GiantMessyFunction(sub,sel)
     local ind = 1
     local pclen = round(len/(#colort-1)) -- transition lengths
     for y = -round((line.height-line.descent/2)/2),round((line.height-line.descent/2)/2)-1 do
-      aegisub.log(1,y.."\n")
-      local clip = string.format("m %d %d l %d %d %d %d %d %d",round(line.xpos-(line.width)/2-2),line.ypos+y,round(line.xpos+(line.width)/2+2),line.ypos+y,round(line.xpos+(line.width)/2+2),line.ypos+y+1,round(line.xpos-(line.width)/2-2),line.ypos+y+1)
+      --aegisub.log(1,y.."\n")
+      local tlx = line.xpos-((line.width/2)*dcos(line.zrot)-y*dsin(line.zrot))
+      local tly = line.ypos+(y*dcos(line.zrot)+(line.width/2)*dsin(line.zrot))
+      local trx = line.xpos+((line.width/2)*dcos(line.zrot)+y*dsin(line.zrot))
+      local try = line.ypos+(y*dcos(line.zrot)-(line.width/2)*dsin(line.zrot))
+      local brx = line.xpos+((line.width/2)*dcos(line.zrot)+y*dsin(line.zrot))+1*dsin(line.zrot)
+      local bry = line.ypos+(y*dcos(line.zrot)-(line.width/2)*dsin(line.zrot))+1*dcos(line.zrot)
+      local blx = line.xpos-((line.width/2)*dcos(line.zrot)-y*dsin(line.zrot))+1*dsin(line.zrot)
+      local bly = line.ypos+(y*dcos(line.zrot)+(line.width/2)*dsin(line.zrot))+1*dcos(line.zrot)
+      local clip = string.format("m %.0f %.0f l %.0f %.0f %.0f %.0f %.0f %.0f",tlx,tly,trx,try,brx,bry,blx,bly)
       local cur = math.floor(i/pclen)+1
       local color = string.format("%02X%02X%02X",round(colort[cur][1]+(colort[cur+1][1]-colort[cur][1])*(i%pclen+1)/pclen),round(colort[cur][2]+(colort[cur+1][2]-colort[cur][2])*(i%pclen+1)/pclen),round(colort[cur][3]+(colort[cur+1][3]-colort[cur][3])*(i%pclen+1)/pclen)) -- 255*i/len,0,0
-      line.text = string.format("{\\c&H%s&\\clip(%s)\\pos(%f,%f)}",color,clip,line.xpos,line.ypos)..line.text
+      line.text = string.format("{\\c&H%s&\\clip(%s)\\pos(%.2f,%.2f)}",color,clip,line.xpos,line.ypos)..line.text
       i = i+1
       sub.insert(v+i,line)
       line.text = orgtext
@@ -191,3 +199,5 @@ function round(num, idp) -- borrowed from the lua-users wiki
   local mult = 10^(idp or 0)
   return math.floor(num * mult + 0.5) / mult
 end
+
+aegisub.register_macro("ASSgrad","GRAD YOUR ASS LIKE NEVER BEFORE", GiantMessyFunction)
