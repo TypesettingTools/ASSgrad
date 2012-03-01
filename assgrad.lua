@@ -7,12 +7,12 @@ script_version = "9001"
 require "karaskel"
 require "re"
 
-function dcos(a) return math.cos(a*math.pi/180) end
-function dacos(a) return 180*math.acos(a)/math.pi end
-function dsin(a) return math.sin(a*math.pi/180) end
-function dasin(a) return 180*math.asin(a)/math.pi end
-function dtan(a) return math.tan(a*math.pi/180) end
-function datan(x,y) return 180*math.atan2(x,y)/math.pi end
+function dcos(a) return math.cos(math.rad(a)) end
+function dacos(a) return math.deg(math.acos(a)) end
+function dsin(a) return math.sin(math.rad(a)) end
+function dasin(a) return math.deg(math.asin(a)) end
+function dtan(a) return math.tan(math.rad(a)) end
+function datan(x,y) return math.deg(math.atan2(x,y)) end
 
 fix = {}
 
@@ -89,6 +89,7 @@ function GiantMessyFunction(sub,sel)
     if strs then
       line.width, line.height, line.descent, line.extlead = GetSizeOfVectorObject(strs[2].str)
     end
+    line.height = line.height - line.descent/2
     line.num = v
     if line.margin_v ~= 0 then line._v = line.margin_v end
     if line.margin_l ~= 0 then line._l = line.margin_l end
@@ -118,43 +119,50 @@ function GiantMessyFunction(sub,sel)
     line.layer = 0
     line.text = line.text:gsub("\\pos%([%-%d%.]+,[%-%d%.]+%)","")
     line.text = line.text:gsub("\\org%([%-%d%.]+,[%-%d%.]+%)","")
-    line.text = line.text:gsub("\\1?c&H%X%X%X%X%X%X&","")
+    line.text = line.text:gsub("\\1?c&H%x+&","")
     local i = 0
     local it = 0
-    local orgtext = line.text
+    local OriginalText = line.text
     line.height = line.height*line.yscl/100
     line.width = line.width*line.xscl/100
-    local bs = 3 -- band size. Nothing more, nothing less.
-    local len = math.ceil((line.height-line.descent/2))+bs-1
-    local colort = {
+    local BandOverlap = 3 -- overlapping the bands by 3 or so pixels is important for diagonal gradients
+    local BandSize = 1
+    local theta = 0
+    local Length = math.ceil(line.height/BandSize)
+    local ColorTable = { -- put data in table as rgb for no good reason
       {0,0,255,};
       {255,0,0,};
       {0,255,0,};
     }
     local ind = 1
-    local pclen = math.floor(len/(#colort-1)) -- transition lengths
-    for y = -round((line.height-line.descent/2)/2),round((line.height-line.descent/2)/2)-1 do
-      --aegisub.log(1,y.."\n")
-      local tlx = line.xpos-((line.width/2)*dcos(line.zrot)-y*dsin(line.zrot))
-      local tly = line.ypos+(y*dcos(line.zrot)+(line.width/2)*dsin(line.zrot))
-      local trx = line.xpos+((line.width/2)*dcos(line.zrot)+y*dsin(line.zrot))
-      local try = line.ypos+(y*dcos(line.zrot)-(line.width/2)*dsin(line.zrot))
-      local brx = line.xpos+((line.width/2)*dcos(line.zrot)+y*dsin(line.zrot))+bs*dsin(line.zrot)
-      local bry = line.ypos+(y*dcos(line.zrot)-(line.width/2)*dsin(line.zrot))+bs*dcos(line.zrot)
-      local blx = line.xpos-((line.width/2)*dcos(line.zrot)-y*dsin(line.zrot))+bs*dsin(line.zrot)
-      local bly = line.ypos+(y*dcos(line.zrot)+(line.width/2)*dsin(line.zrot))+bs*dcos(line.zrot)
-      local clip = string.format("m %d %d l %d %d %d %d %d %d",tlx,tly,trx,try,brx,bry,blx,bly)
-      --local clip2 = string.format("m %d %d l %d %d %d %d %d %d",math.ceil(tlx),math.ceil(tly),math.ceil(trx),math.ceil(try),math.ceil(brx),math.ceil(bry),math.ceil(blx),math.ceil(bly))
-      local cur = math.floor(i/pclen)+1
-      local color = string.format("%02X%02X%02X",round(colort[cur][1]+(colort[cur+1][1]-colort[cur][1])*(i%pclen+1)/pclen),round(colort[cur][2]+(colort[cur+1][2]-colort[cur][2])*(i%pclen+1)/pclen),round(colort[cur][3]+(colort[cur+1][3]-colort[cur][3])*(i%pclen+1)/pclen)) -- 255*i/len,0,0
+    local PerColorLength = math.ceil(Length/(#ColorTable-1)) -- transition lengths
+    -- define vectors
+    local origin = {line.xpos, line.ypos, 0}
+    local position = {-line.width*0.5,-line.height*0.5+line.descent*0.5,0} -- assuming rectangular by default. Can be easily obtained for a predefined four-corner clip
+    local left = {0,line.height,0}
+    local top = {line.width,0,0}
+    -- rectangular means right = left and bottom = top
+    position = vec.s2c(vec.saddaz(vec.c2s(position),math.rad(line.zrot)))
+    local topleft = vec.add(origin,position) -- position of top left
+    local topright = vec.sadd(vec.c2s(topleft),vec.saddaz(vec.c2s(top),math.rad(line.zrot)))
+    --local bottomleft = vec.sadd(vec.c2s(topleft),vec.saddaz(vec.c2s(left),math.rad(line.zrot)))
+    --local bottomright = vec.sadd(vec.c2s(topright),vec.saddaz(vec.c2s(left),math.rad(line.zrot)))
+    local vertband = vec.saddaz(vec.c2s({0,BandSize+BandOverlap,0}),math.rad(line.zrot))
+    for y = 0,math.floor(line.height/BandSize)-1 do
+      local tl = vec.sadd(vec.c2s(topleft),vec.sadds(vertband,y*BandSize-(BandSize+BandOverlap)))
+      local tr = vec.sadd(vec.c2s(tl),vec.saddaz(vec.c2s(top),math.rad(line.zrot+theta)))
+      local br = vec.sadd(vec.c2s(tr),vertband)
+      local bl = vec.sadd(vec.c2s(tl),vertband)
+      local cur = math.floor(i/PerColorLength)+1 -- because math.ceil(0) == 0
+      local red = round(ColorTable[cur][1]+(ColorTable[cur+1][1]-ColorTable[cur][1])*(i%PerColorLength+1)/PerColorLength) -- forward difference
+      local gre = round(ColorTable[cur][2]+(ColorTable[cur+1][2]-ColorTable[cur][2])*(i%PerColorLength+1)/PerColorLength)
+      local blu = round(ColorTable[cur][3]+(ColorTable[cur+1][3]-ColorTable[cur][3])*(i%PerColorLength+1)/PerColorLength)
+      local clip = string.format("m %d %d l %d %d %d %d %d %d",tl[1],tl[2],tr[1],tr[2],br[1],br[2],bl[1],bl[2])
+      local color = string.format("%02X%02X%02X",blu,gre,red) -- \c tags are in BGR order
       line.text = string.format("{\\c&H%s&\\clip(%s)\\pos(%.2f,%.2f)}",color,clip,line.xpos,line.ypos)..line.text
-      i = i+1
-      --it = it+2
+      i = i + 1
       sub.insert(v+i,line)
-      --line.text = orgtext
-      --line.text = string.format("{\\c&H%s&\\clip(%s)\\pos(%.2f,%.2f)}",color,clip2,line.xpos,line.ypos)..line.text
-      --sub.insert(v+it,line)
-      line.text = orgtext
+      line.text = OriginalText
     end
   end
 end
@@ -169,7 +177,7 @@ function GetSizeOfVectorObject(vect)
     if not ymin then ymin = tonumber(b)-iy elseif tonumber(b)-iy < ymin then ymin = tonumber(b)-iy end
   end
   vect = vect:gsub("([%-%d]+) ([%-%d]+)",normalize)
-  return xmax-xmin+1,ymax-ymin+1,0,0
+  return xmax-xmin+2,ymax-ymin+2,0,0 -- pad out by 2px
 end
 
 function GetInfo(sub, line, styles, num) -- because camelcase
@@ -202,7 +210,7 @@ function GetInfo(sub, line, styles, num) -- because camelcase
     if not line.clip then
       line.clips, line.clip = a:match("\\(i?clip%([%d]*,?)(.-)%)")
     end
-    --if line.clip then aegisub.log(5,"Clip: %s%s)\n",line.clips,line.clip) end -- because otherwise it crashes!
+    --if line.clip then aegisub.log(5,"Clip: (%s%s)\n",line.clips,line.clip) end
     for b in line.text:gmatch("%{(.-)%}") do
       for c in b:gmatch("\\t(%b())") do -- this will return an empty string for t_exp if no exponential factor is specified
         t_start,t_end,t_exp,t_eff = c:sub(2,-2):match("([%-%d]+),([%-%d]+),([%d%.]*),?(.+)")
@@ -218,6 +226,107 @@ function GetInfo(sub, line, styles, num) -- because camelcase
     --aegisub.log(5,"No comment/override block found in line %d\n",num)
   end
 end
+
+vec = {} -- borrow a bunch of vector functions from jfs's raytracer.lua
+
+vec.null = {0,0,0}
+
+function vec.n(n)
+  return {n,n,n}
+end
+
+function vec.p2d(v) -- return x/y
+  return v[1], v[2]
+end
+
+function vec.p(v)
+  return v[1],v[2],v[3]
+end
+
+function vec.c2s(v) -- cartesian -> spherical
+  local r = {}
+  r[1] = vec.len(v) -- radial distance
+  r[2] = math.acos(v[3]/r[1]) -- elevation - corresponds to z (angle measured from the positive z-axis)
+  r[3] = math.atan2(v[2],v[1]) -- azimuth  - corresponds to x and y
+  return r
+end
+
+function vec.s2c(v) -- spherical -> cartesian
+  local r = {}
+  r[1] = v[1]*math.cos(v[3])*math.sin(v[2])
+  r[2] = v[1]*math.sin(v[3])*math.sin(v[2])
+  r[3] = v[1]*math.cos(v[2])
+  return r
+end
+
+function vec.sadds(v, s) -- add a scalar length
+  return {v[1]+s, v[2], v[3]}
+end
+
+function vec.saddaz(v, s) -- add to the azimuth
+  return {v[1], v[2], v[3]-s}
+end
+
+function vec.sadd(v1, v2) -- spherical addition (by converting back into cartesian since I'm cool like that)
+  return vec.add(vec.s2c(v1),vec.s2c(v2)) -- return cartesian
+end
+
+function vec.add(v1, v2) -- v2 plus v2
+	local r = {}
+	r[1] = v1[1] + v2[1]
+	r[2] = v1[2] + v2[2]
+	r[3] = v1[3] + v2[3]
+	return r
+end
+
+function vec.sub(v1, v2) -- v1 minus v2
+	local r = {}
+	r[1] = v1[1] - v2[1]
+	r[2] = v1[2] - v2[2]
+	r[3] = v1[3] - v2[3]
+	return r
+end
+
+function vec.scale(v, s) -- vector times a scalar
+	local r = {}
+	r[1] = v[1] * s
+	r[2] = v[2] * s
+	r[3] = v[3] * s
+	return r
+end
+
+function vec.len(v) -- vector length
+	return math.sqrt(v[1]*v[1] + v[2]*v[2] + v[3]*v[3])
+end
+
+function vec.norm(v) -- unit vector in the direction of vector v
+	local r, il = {}, 1/vec.len(v)
+	r[1] = v[1]*il
+	r[2] = v[2]*il
+	r[3] = v[3]*il
+	return r
+end
+
+function vec.snorm(v) -- unit vector in the direction of vector v
+	return {1, v[2], v[3]}
+end
+
+function vec.dot(v1, v2) -- dot product of vectors
+	return v1[1]*v2[1] + v1[2]*v2[2] + v1[3]*v2[3]
+end
+
+function vec.cross(v1, v2) -- v1 cross v2
+	local r = {}
+	r[1] = v1[2]*v2[3] - v1[3]*v2[2]
+	r[2] = v1[1]*v2[3] - v1[3]*v2[1]
+	r[3] = v1[1]*v2[2] - v1[2]*v2[1]
+	return r
+end
+
+function vec.normal(p1, p2, p3)
+	return vec.cross(vec.sub(p2, p1), vec.sub(p3, p1))
+end
+
 
 function round(num, idp) -- borrowed from the lua-users wiki
   local mult = 10^(idp or 0)
