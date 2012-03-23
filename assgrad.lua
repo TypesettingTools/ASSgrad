@@ -7,25 +7,25 @@ script_version = "9001"
 require "karaskel"
 require "re"
 
-function dcos(a) return math.cos(math.rad(a)) end
-function dacos(a) return math.deg(math.acos(a)) end
-function dsin(a) return math.sin(math.rad(a)) end
-function dasin(a) return math.deg(math.asin(a)) end
-function dtan(a) return math.tan(math.rad(a)) end
-function datan(x,y) return math.deg(math.atan2(x,y)) end
+function cosd(a) return math.cos(math.rad(a)) end
+function acosd(a) return math.deg(math.acos(a)) end
+function sind(a) return math.sin(math.rad(a)) end
+function asind(a) return math.deg(math.asin(a)) end
+function tand(a) return math.tan(math.rad(a)) end
+function atan2d(x,y) return math.deg(math.atan2(x,y)) end
 
 fix = {}
 
 fix.ali = {
-  function(x,y,w,h,a) local r = w/2 return x+r*dcos(a)-h/2*dsin(a), y-r*dsin(a)-h/2*dcos(a) end; -- 1
-  function(x,y,w,h,a) local r = h/2 return x-r*dsin(a), y-r*dcos(a) end;                         -- 2
-  function(x,y,w,h,a) local r = w/2 return x-r*dcos(a)-h/2*dsin(a), y+r*dsin(a)-h/2*dcos(a) end; -- 3
-  function(x,y,w,h,a) local r = w/2 return x+r*dcos(a), y-r*dsin(a) end;                         -- 4
+  function(x,y,w,h,a) local r = w/2 return x+r*cosd(a)-h/2*sind(a), y-r*sind(a)-h/2*cosd(a) end; -- 1
+  function(x,y,w,h,a) local r = h/2 return x-r*sind(a), y-r*cosd(a) end;                         -- 2
+  function(x,y,w,h,a) local r = w/2 return x-r*cosd(a)-h/2*sind(a), y+r*sind(a)-h/2*cosd(a) end; -- 3
+  function(x,y,w,h,a) local r = w/2 return x+r*cosd(a), y-r*sind(a) end;                         -- 4
   function(x,y,w,h,a) return x, y end;                                                           -- 5
-  function(x,y,w,h,a) local r = w/2 return x-r*dcos(a), y+r*dsin(a) end;                         -- 6
-  function(x,y,w,h,a) local r = w/2 return x+r*dcos(a)+h/2*dsin(a), y-r*dsin(a)+h/2*dcos(a) end; -- 7
-  function(x,y,w,h,a) local r = h/2 return x+r*dsin(a), y+r*dcos(a) end;                         -- 8
-  function(x,y,w,h,a) local r = w/2 return x-r*dcos(a)+h/2*dsin(a), y+r*dsin(a)+h/2*dcos(a) end; -- 9
+  function(x,y,w,h,a) local r = w/2 return x-r*cosd(a), y+r*sind(a) end;                         -- 6
+  function(x,y,w,h,a) local r = w/2 return x+r*cosd(a)+h/2*sind(a), y-r*sind(a)+h/2*cosd(a) end; -- 7
+  function(x,y,w,h,a) local r = h/2 return x+r*sind(a), y+r*cosd(a) end;                         -- 8
+  function(x,y,w,h,a) local r = w/2 return x-r*cosd(a)+h/2*sind(a), y+r*sind(a)+h/2*cosd(a) end; -- 9
 }
 
 fix.xpos = {
@@ -74,6 +74,8 @@ patterns = {
   ['fs']      = "\\fs([%d%.]+)",  
 }
 
+vobj = re.compile("{.*?\\\\p1.*?}(.+?)({.*?\\\\p0.*?}|$)")
+
 function GiantMessyFunction(sub,sel)
   local meta, styles = karaskel.collect_head(sub,false)
   for i,v in ipairs(sel) do
@@ -85,7 +87,7 @@ function GiantMessyFunction(sub,sel)
     line.styleref.fontname = line.fn
     line.styleref.fontsize = line.fs
     line.width, line.height, line.descent, line.extlead = aegisub.text_extents(line.styleref,line.text_stripped)
-    local strs = re.match(line.text,"{.*?\\\\p1.*?}(.+?)({.*?\\\\p0.*?}|$)")
+    local strs = vobj:match(line.text)
     if strs then
       line.width, line.height, line.descent, line.extlead = GetSizeOfVectorObject(strs[2].str)
     end
@@ -105,9 +107,9 @@ function GiantMessyFunction(sub,sel)
     local xd = line.xpos - line.xorg
     local yd = line.ypos - line.yorg
     local r = math.sqrt(xd^2+yd^2)
-    local alpha = datan(yd,xd)
-    line.xpos = line.xorg + r*dcos(alpha-line.zrot)
-    line.ypos = line.yorg + r*dsin(alpha-line.zrot) --]]
+    local alpha = atan2d(yd,xd)
+    line.xpos = line.xorg + r*cosd(alpha-line.zrot)
+    line.ypos = line.yorg + r*sind(alpha-line.zrot) --]]
     line.xpos,line.ypos = fix.ali[line.ali](line.xpos,line.ypos,line.width*line.xscl/100,line.height*line.yscl/100,line.zrot)
     if line.ali ~= 5 then
       if line.text:match("\\an[1-9]") then
@@ -125,17 +127,19 @@ function GiantMessyFunction(sub,sel)
     local OriginalText = line.text
     line.height = line.height*line.yscl/100
     line.width = line.width*line.xscl/100
-    local BandOverlap = 3 -- overlapping the bands by 3 or so pixels is important for diagonal gradients
-    local BandSize = 1
+    local BandOverlap = 4 -- overlapping the bands by 3 or so pixels is important for diagonal gradients
+    local BandSize = 4
     local theta = 0
     local Length = math.ceil(line.height/BandSize)
     local ColorTable = { -- put data in table as rgb for no good reason
-      {0,0,255,};
-      {255,0,0,};
-      {0,255,0,};
+      {240,240,240,};
+      {237,142,183,};
+      --{0,255,0,};
     }
-    local ind = 1
+    --ColorTable[0] = table.copy(ColorTable[1])
     local PerColorLength = math.ceil(Length/(#ColorTable-1)) -- transition lengths
+    ColorTable[#ColorTable+1] = table.copy(ColorTable[#ColorTable])
+    local ind = 1
     -- define vectors
     local origin = {line.xpos, line.ypos, 0}
     local position = {-line.width*0.5,-line.height*0.5+line.descent*0.5,0} -- assuming rectangular by default. Can be easily obtained for a predefined four-corner clip
@@ -154,10 +158,11 @@ function GiantMessyFunction(sub,sel)
       local br = vec.sadd(vec.c2s(tr),vertband)
       local bl = vec.sadd(vec.c2s(tl),vertband)
       local cur = math.floor(i/PerColorLength)+1 -- because math.ceil(0) == 0
+      --local cur = math.ceil(i/PerColorLength)
       local red = round(ColorTable[cur][1]+(ColorTable[cur+1][1]-ColorTable[cur][1])*(i%PerColorLength+1)/PerColorLength) -- forward difference
       local gre = round(ColorTable[cur][2]+(ColorTable[cur+1][2]-ColorTable[cur][2])*(i%PerColorLength+1)/PerColorLength)
       local blu = round(ColorTable[cur][3]+(ColorTable[cur+1][3]-ColorTable[cur][3])*(i%PerColorLength+1)/PerColorLength)
-      local clip = string.format("m %d %d l %d %d %d %d %d %d",tl[1],tl[2],tr[1],tr[2],br[1],br[2],bl[1],bl[2])
+      local clip = string.format("m %.0f %.0f l %.0f %.0f %.0f %.0f %.0f %.0f",tl[1],tl[2],tr[1],tr[2],br[1],br[2],bl[1],bl[2])
       local color = string.format("%02X%02X%02X",blu,gre,red) -- \c tags are in BGR order
       line.text = string.format("{\\c&H%s&\\clip(%s)\\pos(%.2f,%.2f)}",color,clip,line.xpos,line.ypos)..line.text
       i = i + 1
