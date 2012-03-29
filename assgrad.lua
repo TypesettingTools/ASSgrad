@@ -40,12 +40,6 @@ fix.ypos = {
   function(sy,v) return v    end;
 }
 
-ui = {
-  {class = "color";
-    x = 0; y = 0; height = 1; width = 1;
-  value = "#FF00FF"; name = "dicks";},
-}
-
 header = {
   ['xscl'] = "scale_x",
   ['yscl'] = "scale_y",
@@ -75,6 +69,68 @@ patterns = {
 }
 
 vobj = re.compile("{.*?\\\\p1.*?}(.+?)({.*?\\\\p0.*?}|$)")
+comma = re.compile(',')
+colon = re.compile(':')
+semic = re.compile(';')
+-- <Ag>(c1,c2,c3:2c1,2c2:3c1,3c2,3c3:4c1;a1,a2:2a1,2a2:3a1,3a2,3a3,3a4:4a1)
+-- <Ag>(c1,c2;a1,a2)
+function CheckLines(sub,sel)
+  local gradlines = {}
+  local len = #sub
+  for x = 1,len do
+    local line = sub[len-x+1]
+    if line.class == "dialogue" then
+      if line.effect:match("<Ag>%(.-%)") then
+        table.insert(gradlines,{x,line.effect:match("<Ag>%((.-)%)")})
+      end
+    end
+  end
+  Crunch(sub,gradlines)
+end
+
+function Crunch(sub,sel)
+  local color = {}
+  local alpha = {}
+  for i,v in ipairs(sel) do
+    local all = semic:split(v[2]) -- {color, alpha}
+    local colour = colon:split(all[1])
+    for ii,x in ipairs(colour) do
+      color[ii] = ColorParse(comma:split(x))
+    end
+    colour = nil
+    if all[2] then
+      local alepha = colon:split(all[2])
+      for ii,x in ipairs(alepha) do
+        alpha[ii] = comma:split(x)
+      end
+      alepha = nil
+    end
+  end
+  for k,v in pairs(color) do
+    for kk,x in pairs(v) do
+      aegisub.log(0,'%s: ',tostring(k))
+      for kkk,xv in pairs(x) do
+        aegisub.log(0,"%s ",tostring(xv))
+      end
+      aegisub.log(0,'\n')
+    end
+  end
+end
+
+function ColorParse(ColorTab) --BGR, RGB
+  local ReturnTab = {}
+  for i,v in ipairs(ColorTab) do
+    if v:match("^&H") then
+      local b,g,r = v:match("^&H(%x%x)(%x%x)(%x%x)&")
+      aegisub.log(0,"%s,%s,%s\n",r,g,b)
+      table.insert(ReturnTab,{tonumber(r,16),tonumber(g,16),tonumber(b,16)})
+    else
+      local r,g,b = v:match("^#?(%x%x)(%x%x)(%x%x)")
+      table.insert(ReturnTab,{tonumber(r,16),tonumber(g,16),tonumber(b,16)})
+    end
+  end
+  return ReturnTab
+end
 
 function GiantMessyFunction(sub,sel)
   local meta, styles = karaskel.collect_head(sub,false)
@@ -174,12 +230,12 @@ end
 
 function GetSizeOfVectorObject(vect)
   local ix, iy = vect:match("^m ([%-%d]+) ([%-%d]+)")
-  local xmin, xmax, ymin, ymax
+  local xmin, xmax, ymin, ymax = 0,0,0,0
   local function normalize(a,b)
-    if not xmax then xmax = tonumber(a)-ix elseif tonumber(a)-ix > xmax then xmax = tonumber(a)-ix end
-    if not xmin then xmin = tonumber(a)-ix elseif tonumber(a)-ix < xmin then xmin = tonumber(a)-ix end
-    if not ymax then ymax = tonumber(b)-iy elseif tonumber(b)-iy > ymax then ymax = tonumber(b)-iy end
-    if not ymin then ymin = tonumber(b)-iy elseif tonumber(b)-iy < ymin then ymin = tonumber(b)-iy end
+    if tonumber(a)-ix > xmax then xmax = tonumber(a)-ix end
+    if tonumber(a)-ix < xmin then xmin = tonumber(a)-ix end
+    if tonumber(b)-iy > ymax then ymax = tonumber(b)-iy end
+    if tonumber(b)-iy < ymin then ymin = tonumber(b)-iy end
   end
   vect = vect:gsub("([%-%d]+) ([%-%d]+)",normalize)
   return xmax-xmin+2,ymax-ymin+2,0,0 -- pad out by 2px
@@ -332,10 +388,9 @@ function vec.normal(p1, p2, p3)
 	return vec.cross(vec.sub(p2, p1), vec.sub(p3, p1))
 end
 
-
 function round(num, idp) -- borrowed from the lua-users wiki
   local mult = 10^(idp or 0)
   return math.floor(num * mult + 0.5) / mult
 end
 
-aegisub.register_macro("ULTIMATE SUPERGRADIENT","GRAD YOUR ASS LIKE NEVER BEFORE", GiantMessyFunction)
+aegisub.register_macro("ULTIMATE SUPERGRADIENT","GRAD YOUR ASS LIKE NEVER BEFORE", CheckLines)
