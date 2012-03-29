@@ -1,4 +1,5 @@
-﻿### ASSgrad ###
+﻿ASSgrad
+-------
 
 Ladies and Mentlegen, I introduce you to YIYAGTFA: YIYAGTFA Isn't Yet Another Gradient Tool For Aegisub!
 
