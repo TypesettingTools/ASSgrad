@@ -19,7 +19,7 @@ It's okay to neglect unused values, as long as you don't care to set anything af
 
 `<Ag>(&HFF0000&,&H00FF00&)` is valid, and will create a gradient on color 1, from blue to green.
 
-`<Ag>(&HFF0000&,#0000FF;;[options])` creates the same gradient as above, but with some (or all) options changed from the deafult (option formatting will be decided upon eventually). Also note that `#` is not required for rgb color formatting (that is, `#0000FF` and `0000FF` are equivalent).
+`<Ag>(&HFF0000&,#00FF00;;option1::option3)` creates the same gradient as above, but with some options changed from the deafult (option formatting will be decided upon eventually). Also note that `#` is not required for rgb color formatting (that is, `#0000FF` and `0000FF` are equivalent (and also very blue)).
 
 `<Ag>(&HFF0000&,&H00FF00&::&H00FF00&,&HFF0000&;:::0,230,255)` should be valid, and will create a gradient on color 1 (main color), from blue to green, a gradient on color 3 (outline), from green to blue, and an alpha gradient on color 4 (shadow) that goes from opaque, to transluscent, to fully transparent.
 
