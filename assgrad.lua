@@ -72,15 +72,16 @@ vobj = re.compile("{.*?\\\\p1.*?}(.+?)({.*?\\\\p0.*?}|$)")
 comma = re.compile(',')
 colon = re.compile(':')
 semic = re.compile(';')
--- <Ag>(c1,c2,c3:2c1,2c2:3c1,3c2,3c3:4c1;a1,a2:2a1,2a2:3a1,3a2,3a3,3a4:4a1)
--- <Ag>(c1,c2;a1,a2)
-function CheckLines(sub,sel)
+lf = re.compile('\\\\N') -- is double escaping still required?
+-- <Ag>(1c:2c:3c:4c;1a:2a:3a:4a;1o,2o,3o)
+-- options to expose: band overlap, band size, theta (unimplemented)
+function GatherLines(sub,sel)
   local gradlines = {}
   local len = #sub
   for x = 1,len do
-    local line = sub[len-x+1]
+    local line = sub[len-x+1] -- loop backwards, so subs are added to the select table from last to first.
     if line.class == "dialogue" then
-      if line.effect:match("<Ag>%(.-%)") then
+      if line.effect:match("<Ag>%(.-%)") then -- use lua's own pattern matching as much as possible because it's very fast.
         table.insert(gradlines,{x,line.effect:match("<Ag>%((.-)%)")})
       end
     end
@@ -91,29 +92,36 @@ end
 function Crunch(sub,sel)
   local color = {}
   local alpha = {}
+  local options = {}
   for i,v in ipairs(sel) do
-    local all = semic:split(v[2]) -- {color, alpha}
+    local line = sub(v[1])
+    local all = semic:split(v[2]) -- {color, alpha, options}
     local colour = colon:split(all[1])
     for ii,x in ipairs(colour) do
       color[ii] = ColorParse(comma:split(x))
     end
+    CleanTable(color)
     colour = nil
     if all[2] then
       local alepha = colon:split(all[2])
       for ii,x in ipairs(alepha) do
         alpha[ii] = comma:split(x)
       end
+      CleanTable(alpha)
       alepha = nil
     end
-  end
-  for k,v in pairs(color) do
-    for kk,x in pairs(v) do
-      aegisub.log(0,'%s: ',tostring(k))
-      for kkk,xv in pairs(x) do
-        aegisub.log(0,"%s ",tostring(xv))
-      end
-      aegisub.log(0,'\n')
+    if all[3] then
+      options = comma:split(all[3])
+      CleanTable(options)
     end
+    line.num = v[1]
+    GiantMessyFunction(sub,line,color,alpha,options)
+  end
+end
+
+function CleanTable(table)
+  for i,v in ipairs(table) do -- should be sequential integer indices
+    if v == "" or v == {} then table[k] = nil end -- strip out blank entries - we can't use "skip empty" when splitting because it's order dependent.
   end
 end
 
@@ -132,103 +140,127 @@ function ColorParse(ColorTab) --BGR, RGB
   return ReturnTab
 end
 
-function GiantMessyFunction(sub,sel)
+function MultilineExtents(line)
+  local SplitTable = lf:split(line.text_stripped) -- I don't remember if text_stripped gets rid of linebreaks
+  local height, width, desc, ext = 0,0,0,0
+  for i,v in ipairs(SplitTable) do
+    local h,w,d,e = NewTextExtents(line.styleref,v)
+    height = height + h + d -- each line includes descent
+    if w > width then width = w end
+    desc,ext = d,e
+  end
+  return height, width, desc, ext
+end
+
+function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   local meta, styles = karaskel.collect_head(sub,false)
-  for i,v in ipairs(sel) do
-    local line = sub[v]
-    karaskel.preproc_line(sub, meta, styles, line)
-    GetInfo(sub, line, styles, v)
-    line.styleref.scale_y = 100 -- line.yscl
-    line.styleref.scale_x = 100 -- line.xscl
-    line.styleref.fontname = line.fn
-    line.styleref.fontsize = line.fs
-    line.width, line.height, line.descent, line.extlead = aegisub.text_extents(line.styleref,line.text_stripped)
-    local strs = vobj:match(line.text)
-    if strs then
-      line.width, line.height, line.descent, line.extlead = GetSizeOfVectorObject(strs[2].str)
+  karaskel.preproc_line(sub, meta, styles, line)
+  GetInfo(sub, line, styles, line.num)
+  line.width, line.height, line.descent, line.extlead = MultilineExtents(line) -- handle linebreaks
+  local strs = vobj:match(line.text)
+  if strs then
+    line.width, line.height, line.descent, line.extlead = GetSizeOfVectorObject(strs[2].str)
+  end
+  line.height = line.height - line.descent/2
+  if line.margin_v ~= 0 then line._v = line.margin_v end
+  if line.margin_l ~= 0 then line._l = line.margin_l end
+  if line.margin_r ~= 0 then line._r = line.margin_r end
+  if not line.xpos then
+    line.xpos = fix.xpos[line.ali%3+1](meta.res_x,line._l,line._r)
+    line.ypos = fix.ypos[math.ceil(line.ali/3)](meta.res_y,line._v)
+  end
+  if not line.xorg then
+    line.xorg = line.xpos
+    line.yorg = line.ypos
+  end
+  local xd = line.xpos - line.xorg
+  local yd = line.ypos - line.yorg
+  local r = math.sqrt(xd^2+yd^2)
+  local alpha = atan2d(yd,xd)
+  line.xpos = line.xorg + r*cosd(alpha-line.zrot)
+  line.ypos = line.yorg + r*sind(alpha-line.zrot) --]]
+  line.xpos,line.ypos = fix.ali[line.ali](line.xpos,line.ypos,line.width*line.xscl/100,line.height*line.yscl/100,line.zrot)
+  if line.ali ~= 5 then
+    if line.text:match("\\an[1-9]") then
+      line.text = line.text:gsub("\\an[1-9]","\\an5")
+    else
+      line.text = "{\\an5}"..line.text
     end
-    line.height = line.height - line.descent/2
-    line.num = v
-    if line.margin_v ~= 0 then line._v = line.margin_v end
-    if line.margin_l ~= 0 then line._l = line.margin_l end
-    if line.margin_r ~= 0 then line._r = line.margin_r end
-    if not line.xpos then
-      line.xpos = fix.xpos[line.ali%3+1](meta.res_x,line._l,line._r)
-      line.ypos = fix.ypos[math.ceil(line.ali/3)](meta.res_y,line._v)
+  end
+  line.layer = 0
+  line.text = line.text:gsub("\\pos%([%-%d%.]+,[%-%d%.]+%)","")
+  line.text = line.text:gsub("\\org%([%-%d%.]+,[%-%d%.]+%)","")
+  local i = 0
+  local it = 0
+  local OriginalText = line.text
+  line.height = line.height*line.yscl/100
+  line.width = line.width*line.xscl/100
+  local BandSize = OptionsTable[1] or 4
+  local BandOverlap = OptionsTable[2] or BandSize -- important for this to be some factor of BandSize, especially if alpha is involved
+  local theta = 0 -- need to figure out some math first
+  local Length = math.ceil(line.height/BandSize)
+  local ColorTable = ColorTable or { -- put data in table as rgb for no good reason
+    {240,240,240,}; -- nice defaults
+    {237,142,183,};
+    --{0,255,0,};
+  }
+  for k,v in pairs(ColorTable) do -- baleet relevant color tags
+    line.text = line.text:gsub(string.format("\\\\[%d][cC]&[hH]%%x+&",k),"")
+  end
+  if ColorTable[1] then line.text:gsub("\\c&H%x+&","") end
+  local PerColorLength = {}
+  for k,v in pairs(ColorTable) do
+    PerColorLength[k] = math.ceil(Length/(#v-1))
+  end
+  --local PerColorLength = math.ceil(Length/(#ColorTable-1)) -- transition lengths
+  --[[ this is for edges. I plan to switch to a central difference rather than a forward difference for the loop some time eventually.
+  ColorTable[0] = table.copy(ColorTable[1])
+  ColorTable[#ColorTable+1] = table.copy(ColorTable[#ColorTable]) --]]
+  local ind = 1
+  -- define vectors
+  local origin = {line.xpos, line.ypos, 0}
+  local position = {-line.width*0.5,-line.height*0.5+line.descent*0.5,0} -- assuming rectangular by default. Can be easily obtained for a predefined four-corner clip
+  local left = {0,line.height,0}
+  local top = {line.width,0,0}
+  -- rectangular means right = left and bottom = top
+  position = vec.s2c(vec.saddaz(vec.c2s(position),math.rad(line.zrot)))
+  local topleft = vec.add(origin,position) -- position of top left
+  local topright = vec.sadd(vec.c2s(topleft),vec.saddaz(vec.c2s(top),math.rad(line.zrot)))
+  --local bottomleft = vec.sadd(vec.c2s(topleft),vec.saddaz(vec.c2s(left),math.rad(line.zrot)))
+  --local bottomright = vec.sadd(vec.c2s(topright),vec.saddaz(vec.c2s(left),math.rad(line.zrot)))
+  local vertband = vec.saddaz(vec.c2s({0,BandSize+BandOverlap,0}),math.rad(line.zrot))
+  for y = 0,math.floor(line.height/BandSize)-1 do
+    local tl = vec.sadd(vec.c2s(topleft),vec.sadds(vertband,y*BandSize-(BandSize+BandOverlap)))
+    local tr = vec.sadd(vec.c2s(tl),vec.saddaz(vec.c2s(top),math.rad(line.zrot+theta)))
+    local br = vec.sadd(vec.c2s(tr),vertband)
+    local bl = vec.sadd(vec.c2s(tl),vertband)
+    --local cur = math.ceil(i/PerColorLength)
+    local color = ""
+    for ColorNum,ColorSubtable in pairs(ColorTable) do
+      local CurrPCL = PerColorLength[ColorNum]
+      local cur = math.floor(i/CurrPCL)+1 -- because math.ceil(0) == 0
+      local red = round(ColorSubTable[cur][1]+(ColorSubTable[cur+1][1]-ColorSubTable[cur][1])*(i%CurrPCL+1)/CurrPCL) -- forward difference
+      local gre = round(ColorSubTable[cur][2]+(ColorSubTable[cur+1][2]-ColorSubTable[cur][2])*(i%CurrPCL+1)/CurrPCL)
+      local blu = round(ColorSubTable[cur][3]+(ColorSubTable[cur+1][3]-ColorSubTable[cur][3])*(i%CurrPCL+1)/CurrPCL)
+      color = color..string.format("\\%dc&H%02X%02X%02X&",ColorNum,blu,gre,red) -- \c tags are in BGR order
     end
-    if not line.xorg then
-      line.xorg = line.xpos
-      line.yorg = line.ypos
-    end
-    local xd = line.xpos - line.xorg
-    local yd = line.ypos - line.yorg
-    local r = math.sqrt(xd^2+yd^2)
-    local alpha = atan2d(yd,xd)
-    line.xpos = line.xorg + r*cosd(alpha-line.zrot)
-    line.ypos = line.yorg + r*sind(alpha-line.zrot) --]]
-    line.xpos,line.ypos = fix.ali[line.ali](line.xpos,line.ypos,line.width*line.xscl/100,line.height*line.yscl/100,line.zrot)
-    if line.ali ~= 5 then
-      if line.text:match("\\an[1-9]") then
-        line.text = line.text:gsub("\\an[1-9]","\\an5")
-      else
-        line.text = "{\\an5}"..line.text
-      end
-    end
-    line.layer = 0
-    line.text = line.text:gsub("\\pos%([%-%d%.]+,[%-%d%.]+%)","")
-    line.text = line.text:gsub("\\org%([%-%d%.]+,[%-%d%.]+%)","")
-    line.text = line.text:gsub("\\1?c&H%x+&","")
-    local i = 0
-    local it = 0
-    local OriginalText = line.text
-    line.height = line.height*line.yscl/100
-    line.width = line.width*line.xscl/100
-    local BandOverlap = 4 -- overlapping the bands by 3 or so pixels is important for diagonal gradients
-    local BandSize = 4
-    local theta = 0
-    local Length = math.ceil(line.height/BandSize)
-    local ColorTable = { -- put data in table as rgb for no good reason
-      {240,240,240,};
-      {237,142,183,};
-      --{0,255,0,};
-    }
-    --ColorTable[0] = table.copy(ColorTable[1])
-    local PerColorLength = math.ceil(Length/(#ColorTable-1)) -- transition lengths
-    ColorTable[#ColorTable+1] = table.copy(ColorTable[#ColorTable])
-    local ind = 1
-    -- define vectors
-    local origin = {line.xpos, line.ypos, 0}
-    local position = {-line.width*0.5,-line.height*0.5+line.descent*0.5,0} -- assuming rectangular by default. Can be easily obtained for a predefined four-corner clip
-    local left = {0,line.height,0}
-    local top = {line.width,0,0}
-    -- rectangular means right = left and bottom = top
-    position = vec.s2c(vec.saddaz(vec.c2s(position),math.rad(line.zrot)))
-    local topleft = vec.add(origin,position) -- position of top left
-    local topright = vec.sadd(vec.c2s(topleft),vec.saddaz(vec.c2s(top),math.rad(line.zrot)))
-    --local bottomleft = vec.sadd(vec.c2s(topleft),vec.saddaz(vec.c2s(left),math.rad(line.zrot)))
-    --local bottomright = vec.sadd(vec.c2s(topright),vec.saddaz(vec.c2s(left),math.rad(line.zrot)))
-    local vertband = vec.saddaz(vec.c2s({0,BandSize+BandOverlap,0}),math.rad(line.zrot))
-    for y = 0,math.floor(line.height/BandSize)-1 do
-      local tl = vec.sadd(vec.c2s(topleft),vec.sadds(vertband,y*BandSize-(BandSize+BandOverlap)))
-      local tr = vec.sadd(vec.c2s(tl),vec.saddaz(vec.c2s(top),math.rad(line.zrot+theta)))
-      local br = vec.sadd(vec.c2s(tr),vertband)
-      local bl = vec.sadd(vec.c2s(tl),vertband)
-      local cur = math.floor(i/PerColorLength)+1 -- because math.ceil(0) == 0
-      --local cur = math.ceil(i/PerColorLength)
-      local red = round(ColorTable[cur][1]+(ColorTable[cur+1][1]-ColorTable[cur][1])*(i%PerColorLength+1)/PerColorLength) -- forward difference
-      local gre = round(ColorTable[cur][2]+(ColorTable[cur+1][2]-ColorTable[cur][2])*(i%PerColorLength+1)/PerColorLength)
-      local blu = round(ColorTable[cur][3]+(ColorTable[cur+1][3]-ColorTable[cur][3])*(i%PerColorLength+1)/PerColorLength)
-      local clip = string.format("m %.0f %.0f l %.0f %.0f %.0f %.0f %.0f %.0f",tl[1],tl[2],tr[1],tr[2],br[1],br[2],bl[1],bl[2])
-      local color = string.format("%02X%02X%02X",blu,gre,red) -- \c tags are in BGR order
-      line.text = string.format("{\\c&H%s&\\clip(%s)\\pos(%.2f,%.2f)}",color,clip,line.xpos,line.ypos)..line.text
-      i = i + 1
-      sub.insert(v+i,line)
-      line.text = OriginalText
-    end
+    local clip = string.format("m %.0f %.0f l %.0f %.0f %.0f %.0f %.0f %.0f",tl[1],tl[2],tr[1],tr[2],br[1],br[2],bl[1],bl[2])
+    line.text = color..string.format("{\\clip(%s)\\pos(%.2f,%.2f)}",clip,line.xpos,line.ypos)..line.text
+    i = i + 1
+    sub.insert(v+i,line)
+    line.text = OriginalText
   end
 end
 
-function GetSizeOfVectorObject(vect)
+function NewTextExtents(style, text)
+  style.scale_y = 100 -- line.yscl
+  style.scale_x = 100 -- line.xscl
+  style.fontname = line.fn or style.fontname -- avoid setting to nil
+  style.fontsize = line.fs or style.fontsize
+  return aegisub.text_extents(style, text)
+end
+
+function GetSizeOfVectorObject(vect) -- only works with objects consisting of LINES
   local ix, iy = vect:match("^m ([%-%d]+) ([%-%d]+)")
   local xmin, xmax, ymin, ymax = 0,0,0,0
   local function normalize(a,b)
@@ -393,4 +425,4 @@ function round(num, idp) -- borrowed from the lua-users wiki
   return math.floor(num * mult + 0.5) / mult
 end
 
-aegisub.register_macro("ULTIMATE SUPERGRADIENT","GRAD YOUR ASS LIKE NEVER BEFORE", CheckLines)
+aegisub.register_macro("ULTIMATE SUPERGRADIENT","GRAD YOUR ASS LIKE NEVER BEFORE", GatherLines)
