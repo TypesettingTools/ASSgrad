@@ -78,10 +78,11 @@ lf = re.compile('\\\\N') -- is double escaping still required?
 function GatherLines(sub,sel)
   local gradlines = {}
   local len = #sub
-  for x = 1,len do
-    local line = sub[len-x+1] -- loop backwards, so subs are added to the select table from last to first.
+  for x = len,1,-1 do
+    local line = sub[x] -- loop backwards, so subs are added to the select table from last to first.
     if line.class == "dialogue" then
       if line.effect:match("<Ag>%(.-%)") then -- use lua's own pattern matching as much as possible because it's very fast.
+        aegisub.log(0,'x: %d\nline: %s\n\n',x,table.tostring(line))
         table.insert(gradlines,{x,line.effect:match("<Ag>%((.-)%)")})
       end
     end
@@ -94,7 +95,9 @@ function Crunch(sub,sel)
   local alpha = {}
   local options = {}
   for i,v in ipairs(sel) do
-    local line = sub(v[1])
+    aegisub.log(0,'v: %s\n',table.tostring(v))
+    local line = sub[v[1]]
+    aegisub.log(0,table.tostring(line).."\n")
     local all = semic:split(v[2]) -- {color, alpha, options}
     local colour = colon:split(all[1])
     for ii,x in ipairs(colour) do
@@ -156,6 +159,11 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   local meta, styles = karaskel.collect_head(sub,false)
   karaskel.preproc_line(sub, meta, styles, line)
   GetInfo(sub, line, styles, line.num)
+  local OptionsTable = OptionsTable or {}
+  local l = OptionsTable[3] or 0
+  local t = OptionsTable[4] or 0
+  local r = OptionsTable[5] or 0
+  local b = OptionsTable[6] or 0
   line.width, line.height, line.descent, line.extlead = MultilineExtents(line) -- handle linebreaks
   local strs = vobj:match(line.text)
   if strs then
@@ -219,9 +227,9 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   local ind = 1
   -- define vectors
   local origin = {line.xpos, line.ypos, 0}
-  local position = {-line.width*0.5,-line.height*0.5+line.descent*0.5,0} -- assuming rectangular by default. Can be easily obtained for a predefined four-corner clip
-  local left = {0,line.height,0}
-  local top = {line.width,0,0}
+  local position = {-line.width*0.5-l,-line.height*0.5+line.descent*0.5-t,0} -- top left corner
+  local left = {0,line.height+t+b,0}
+  local top = {line.width+l+r,0,0}
   -- rectangular means right = left and bottom = top
   position = vec.s2c(vec.saddaz(vec.c2s(position),math.rad(line.zrot)))
   local topleft = vec.add(origin,position) -- position of top left
@@ -236,7 +244,7 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
     local bl = vec.sadd(vec.c2s(tl),vertband)
     --local cur = math.ceil(i/PerColorLength)
     local color = ""
-    for ColorNum,ColorSubtable in pairs(ColorTable) do
+    for ColorNum,ColorSubTable in pairs(ColorTable) do
       local CurrPCL = PerColorLength[ColorNum]
       local cur = math.floor(i/CurrPCL)+1 -- because math.ceil(0) == 0
       local red = round(ColorSubTable[cur][1]+(ColorSubTable[cur+1][1]-ColorSubTable[cur][1])*(i%CurrPCL+1)/CurrPCL) -- forward difference
@@ -245,9 +253,9 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
       color = color..string.format("\\%dc&H%02X%02X%02X&",ColorNum,blu,gre,red) -- \c tags are in BGR order
     end
     local clip = string.format("m %.0f %.0f l %.0f %.0f %.0f %.0f %.0f %.0f",tl[1],tl[2],tr[1],tr[2],br[1],br[2],bl[1],bl[2])
-    line.text = color..string.format("{\\clip(%s)\\pos(%.2f,%.2f)}",clip,line.xpos,line.ypos)..line.text
+    line.text = '{'..color..string.format("\\clip(%s)\\pos(%.2f,%.2f)}",clip,line.xpos,line.ypos)..line.text
     i = i + 1
-    sub.insert(v+i,line)
+    sub.insert(line.num+i,line)
     line.text = OriginalText
   end
 end
@@ -423,6 +431,28 @@ end
 function round(num, idp) -- borrowed from the lua-users wiki
   local mult = 10^(idp or 0)
   return math.floor(num * mult + 0.5) / mult
+end
+
+function table.tostring(t)
+  if type(t) ~= 'table' then
+    return tostring(t)
+  else
+    local s = ''
+    local i = 1
+    while t[i] ~= nil do
+      if #s ~= 0 then s = s..', ' end
+      s = s..table.tostring(t[i])
+      i = i+1
+    end
+    for k, v in pairs(t) do
+      if type(k) ~= 'number' or k > i then
+        if #s ~= 0 then s = s..', ' end
+        local key = type(k) == 'string' and k or '['..table.tostring(k)..']'
+        s = s..key..'='..table.tostring(v)
+      end
+    end
+    return '{'..s..'}'
+  end
 end
 
 aegisub.register_macro("ULTIMATE SUPERGRADIENT","GRAD YOUR ASS LIKE NEVER BEFORE", GatherLines)
