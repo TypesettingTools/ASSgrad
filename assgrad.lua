@@ -77,9 +77,8 @@ lf = re.compile('\\\\N') -- is double escaping still required?
 -- options to expose: band overlap, band size, theta (unimplemented)
 function GatherLines(sub,sel)
   local gradlines = {}
-  local len = #sub
-  for x = len,1,-1 do
-    local line = sub[x] -- loop backwards, so subs are added to the select table from last to first.
+  for x = #sel,1,-1 do
+    local line = sub[sel[x]] -- loop backwards, so subs are added to the select table from last to first.
     if line.class == "dialogue" then
       if line.effect:match("<Ag>%(.-%)") then -- use lua's own pattern matching as much as possible because it's very fast.
         table.insert(gradlines,{x,line.effect:match("<Ag>%((.-)%)")})
@@ -90,11 +89,12 @@ function GatherLines(sub,sel)
 end
 
 function Crunch(sub,sel)
-  local color = {}
-  local alpha = {}
-  local options = {}
   for i,v in ipairs(sel) do
+    local color = {}
+    local alpha = {}
+    local options = {}
     local line = sub[v[1]]
+    line.effect = line.effect:gsub("<Ag>%(.-%)","")
     line.comment = true; sub[v[1]] = line; line.comment = false
     local all = semic:split(v[2]) -- {color, alpha, options}
     local colour = colon:split(all[1])
