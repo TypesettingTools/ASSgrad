@@ -12,7 +12,7 @@ function acosd(a) return math.deg(math.acos(a)) end
 function sind(a) return math.sin(math.rad(a)) end
 function asind(a) return math.deg(math.asin(a)) end
 function tand(a) return math.tan(math.rad(a)) end
-function atan2d(x,y) return math.deg(math.atan2(x,y)) end
+function atan2d(y,x) return math.deg(math.atan2(y,x)) end
 
 fix = {}
 
@@ -73,7 +73,7 @@ comma = re.compile(',')
 colon = re.compile(':')
 semic = re.compile(';')
 lf = re.compile('\\\\N') -- is double escaping still required?
--- <Ag>(1c:2c:3c:4c;1a:2a:3a:4a;1o,2o,3o)
+-- <Ag>(1c1,1c2,1c3,1c4:2c:3c:4c;1a1,1a2:2a:3a:4a;bandsize,bandoverlap,l,t,r,b)
 -- options to expose: band overlap, band size, theta (unimplemented)
 function GatherLines(sub,sel)
   local gradlines = {}
@@ -82,7 +82,6 @@ function GatherLines(sub,sel)
     local line = sub[x] -- loop backwards, so subs are added to the select table from last to first.
     if line.class == "dialogue" then
       if line.effect:match("<Ag>%(.-%)") then -- use lua's own pattern matching as much as possible because it's very fast.
-        aegisub.log(0,'x: %d\nline: %s\n\n',x,table.tostring(line))
         table.insert(gradlines,{x,line.effect:match("<Ag>%((.-)%)")})
       end
     end
@@ -95,9 +94,8 @@ function Crunch(sub,sel)
   local alpha = {}
   local options = {}
   for i,v in ipairs(sel) do
-    aegisub.log(0,'v: %s\n',table.tostring(v))
     local line = sub[v[1]]
-    aegisub.log(0,table.tostring(line).."\n")
+    line.comment = true; sub[v[1]] = line; line.comment = false
     local all = semic:split(v[2]) -- {color, alpha, options}
     local colour = colon:split(all[1])
     for ii,x in ipairs(colour) do
@@ -118,13 +116,18 @@ function Crunch(sub,sel)
       CleanTable(options)
     end
     line.num = v[1]
+    options.meta, options.styles = karaskel.collect_head(sub,false)
     GiantMessyFunction(sub,line,color,alpha,options)
   end
 end
 
-function CleanTable(table)
-  for i,v in ipairs(table) do -- should be sequential integer indices
-    if v == "" or v == {} then table[k] = nil end -- strip out blank entries - we can't use "skip empty" when splitting because it's order dependent.
+function CleanTable(tabel)
+  for i,v in ipairs(tabel) do -- should be sequential integer indices
+    aegisub.log(0,"%d, %s - %s\n",i,table.tostring(v),tostring(#v))
+    if v == "" or #v == 0 then
+      aegisub.log(0,"baleeted\n")
+      tabel[i] = nil
+    end -- strip out blank entries - we can't use "skip empty" when splitting because it's order dependent.
   end
 end
 
@@ -137,6 +140,7 @@ function ColorParse(ColorTab) --BGR, RGB
       table.insert(ReturnTab,{tonumber(r,16),tonumber(g,16),tonumber(b,16)})
     else
       local r,g,b = v:match("^#?(%x%x)(%x%x)(%x%x)")
+      aegisub.log(0,"%s,%s,%s\n",r,g,b)
       table.insert(ReturnTab,{tonumber(r,16),tonumber(g,16),tonumber(b,16)})
     end
   end
@@ -144,10 +148,14 @@ function ColorParse(ColorTab) --BGR, RGB
 end
 
 function MultilineExtents(line)
-  local SplitTable = lf:split(line.text_stripped) -- I don't remember if text_stripped gets rid of linebreaks
+  local SplitTable = lf:split(line.text:gsub("{.-}","")) -- I don't remember if text_stripped gets rid of linebreaks
   local height, width, desc, ext = 0,0,0,0
+  line.styleref.scale_y = 100 -- line.yscl
+  line.styleref.scale_x = 100 -- line.xscl
+  line.styleref.fontname = line.fn or style.fontname -- avoid setting to nil
+  line.styleref.fontsize = line.fs or style.fontsize
   for i,v in ipairs(SplitTable) do
-    local h,w,d,e = NewTextExtents(line.styleref,v)
+    local h,w,d,e = aegisub.text_extents(line.styleref,v)
     height = height + h + d -- each line includes descent
     if w > width then width = w end
     desc,ext = d,e
@@ -156,26 +164,28 @@ function MultilineExtents(line)
 end
 
 function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
-  local meta, styles = karaskel.collect_head(sub,false)
-  karaskel.preproc_line(sub, meta, styles, line)
-  GetInfo(sub, line, styles, line.num)
+  karaskel.preproc_line(sub, OptionsTable.meta, OptionsTable.styles, line)
+  GetInfo(sub, line, OptionsTable.styles, line.num)
   local OptionsTable = OptionsTable or {}
-  local l = OptionsTable[3] or 0
-  local t = OptionsTable[4] or 0
-  local r = OptionsTable[5] or 0
-  local b = OptionsTable[6] or 0
-  line.width, line.height, line.descent, line.extlead = MultilineExtents(line) -- handle linebreaks
+  local l = tonumber(OptionsTable[3]) or 0
+  local t = tonumber(OptionsTable[4]) or 0
+  local r = tonumber(OptionsTable[5]) or 0
+  local b = tonumber(OptionsTable[6]) or 0
   local strs = vobj:match(line.text)
   if strs then
     line.width, line.height, line.descent, line.extlead = GetSizeOfVectorObject(strs[2].str)
+  else
+    line.width, line.height, line.descent, line.extlead = MultilineExtents(line) -- handle linebreaks
   end
+  line.height = line.height + 2*line.bord
+  line.width = line.width + 2*line.bord
   line.height = line.height - line.descent/2
   if line.margin_v ~= 0 then line._v = line.margin_v end
   if line.margin_l ~= 0 then line._l = line.margin_l end
   if line.margin_r ~= 0 then line._r = line.margin_r end
   if not line.xpos then
-    line.xpos = fix.xpos[line.ali%3+1](meta.res_x,line._l,line._r)
-    line.ypos = fix.ypos[math.ceil(line.ali/3)](meta.res_y,line._v)
+    line.xpos = fix.xpos[line.ali%3+1](OptionsTable.meta.res_x,line._l,line._r)
+    line.ypos = fix.ypos[math.ceil(line.ali/3)](OptionsTable.meta.res_y,line._v)
   end
   if not line.xorg then
     line.xorg = line.xpos
@@ -203,14 +213,13 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   local OriginalText = line.text
   line.height = line.height*line.yscl/100
   line.width = line.width*line.xscl/100
-  local BandSize = OptionsTable[1] or 4
-  local BandOverlap = OptionsTable[2] or BandSize -- important for this to be some factor of BandSize, especially if alpha is involved
+  local BandSize = tonumber(OptionsTable[1]) or 4
+  local BandOverlap = tonumber(OptionsTable[2]) or BandSize -- important for this to be some factor of BandSize, especially if alpha is involved
   local theta = 0 -- need to figure out some math first
   local Length = math.ceil(line.height/BandSize)
   local ColorTable = ColorTable or { -- put data in table as rgb for no good reason
     {240,240,240,}; -- nice defaults
     {237,142,183,};
-    --{0,255,0,};
   }
   for k,v in pairs(ColorTable) do -- baleet relevant color tags
     line.text = line.text:gsub(string.format("\\\\[%d][cC]&[hH]%%x+&",k),"")
@@ -219,6 +228,10 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   local PerColorLength = {}
   for k,v in pairs(ColorTable) do
     PerColorLength[k] = math.ceil(Length/(#v-1))
+  end
+  local PerAlphaLength = {}
+  for k,v in pairs(AlphaTable) do
+    PerAlphaLength[k] = math.ceil(Length/(#v-1))
   end
   --local PerColorLength = math.ceil(Length/(#ColorTable-1)) -- transition lengths
   --[[ this is for edges. I plan to switch to a central difference rather than a forward difference for the loop some time eventually.
@@ -245,6 +258,7 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
     --local cur = math.ceil(i/PerColorLength)
     local color = ""
     for ColorNum,ColorSubTable in pairs(ColorTable) do
+      aegisub.log(0,"%d, %s\n",ColorNum,table.tostring(ColorSubTable))
       local CurrPCL = PerColorLength[ColorNum]
       local cur = math.floor(i/CurrPCL)+1 -- because math.ceil(0) == 0
       local red = round(ColorSubTable[cur][1]+(ColorSubTable[cur+1][1]-ColorSubTable[cur][1])*(i%CurrPCL+1)/CurrPCL) -- forward difference
@@ -252,20 +266,20 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
       local blu = round(ColorSubTable[cur][3]+(ColorSubTable[cur+1][3]-ColorSubTable[cur][3])*(i%CurrPCL+1)/CurrPCL)
       color = color..string.format("\\%dc&H%02X%02X%02X&",ColorNum,blu,gre,red) -- \c tags are in BGR order
     end
+    local alpha = ""
+    for AlphaNum,AlphaSubTable in pairs(AlphaTable) do
+      aegisub.log(0,"%d, %s\n",AlphaNum,table.tostring(AlphaSubTable))
+      local CurrPAL = PerAlphaLength[AlphaNum]
+      local cur = math.floor(i/CurrPAL)+1 -- because math.ceil(0) == 0
+      local calpha = round(AlphaSubTable[cur]+(AlphaSubTable[cur+1]-AlphaSubTable[cur])*(i%CurrPAL+1)/CurrPAL) -- forward difference
+      alpha = alpha..string.format("\\%da&H%02X&",AlphaNum,calpha)
+    end
     local clip = string.format("m %.0f %.0f l %.0f %.0f %.0f %.0f %.0f %.0f",tl[1],tl[2],tr[1],tr[2],br[1],br[2],bl[1],bl[2])
-    line.text = '{'..color..string.format("\\clip(%s)\\pos(%.2f,%.2f)}",clip,line.xpos,line.ypos)..line.text
+    line.text = '{'..color..alpha..string.format("\\clip(%s)\\pos(%.2f,%.2f)}",clip,line.xpos,line.ypos)..line.text
     i = i + 1
     sub.insert(line.num+i,line)
     line.text = OriginalText
   end
-end
-
-function NewTextExtents(style, text)
-  style.scale_y = 100 -- line.yscl
-  style.scale_x = 100 -- line.xscl
-  style.fontname = line.fn or style.fontname -- avoid setting to nil
-  style.fontsize = line.fs or style.fontsize
-  return aegisub.text_extents(style, text)
 end
 
 function GetSizeOfVectorObject(vect) -- only works with objects consisting of LINES
