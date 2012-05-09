@@ -171,6 +171,7 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   local t = tonumber(OptionsTable[4]) or 0
   local r = tonumber(OptionsTable[5]) or 0
   local b = tonumber(OptionsTable[6]) or 0
+  aegisub.log(0,("l: %d t: %d r: %d b: %d\n"):format(l,t,r,b))
   local strs = vobj:match(line.text)
   if strs then
     line.width, line.height, line.descent, line.extlead = GetSizeOfVectorObject(strs[2].str)
@@ -193,10 +194,10 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   end
   local xd = line.xpos - line.xorg
   local yd = line.ypos - line.yorg
-  local r = math.sqrt(xd^2+yd^2)
+  local rad = math.sqrt(xd^2+yd^2)
   local alpha = atan2d(yd,xd)
-  line.xpos = line.xorg + r*cosd(alpha-line.zrot)
-  line.ypos = line.yorg + r*sind(alpha-line.zrot) --]]
+  line.xpos = line.xorg + rad *cosd(alpha-line.zrot)
+  line.ypos = line.yorg + rad *sind(alpha-line.zrot) --]]
   line.xpos,line.ypos = fix.ali[line.ali](line.xpos,line.ypos,line.width*line.xscl/100,line.height*line.yscl/100,line.zrot)
   if line.ali ~= 5 then
     if line.text:match("\\an[1-9]") then
@@ -205,7 +206,6 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
       line.text = "{\\an5}"..line.text
     end
   end
-  line.layer = 0
   line.text = line.text:gsub("\\pos%([%-%d%.]+,[%-%d%.]+%)","")
   line.text = line.text:gsub("\\org%([%-%d%.]+,[%-%d%.]+%)","")
   local i = 0
@@ -215,7 +215,12 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   local BandSize = tonumber(OptionsTable[1]) or 4
   local BandOverlap = tonumber(OptionsTable[2]) or BandSize -- important for this to be some factor of BandSize, especially if alpha is involved
   local theta = 0 -- need to figure out some math first
-  local Length = math.ceil(line.height/BandSize)
+  -- define vectors
+  local origin = {line.xpos, line.ypos, 0}
+  local position = {-line.width*0.5-l,-line.height*0.5+line.descent*0.5-t,0} -- top left corner
+  local left = {0,line.height+t+b,0}
+  local top = {line.width+l+r,0,0}
+  local Length = math.ceil(vec.len(left)/BandSize)
   local ColorTable = ColorTable or { -- put data in table as rgb for no good reason
     {240,240,240,}; -- nice defaults
     {237,142,183,};
@@ -236,19 +241,12 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   ColorTable[0] = table.copy(ColorTable[1])
   ColorTable[#ColorTable+1] = table.copy(ColorTable[#ColorTable]) --]]
   local ind = 1
-  -- define vectors
-  local origin = {line.xpos, line.ypos, 0}
-  local position = {-line.width*0.5-l,-line.height*0.5+line.descent*0.5-t,0} -- top left corner
-  local left = {0,line.height+t+b,0}
-  local top = {line.width+l+r,0,0}
   -- rectangular means right = left and bottom = top
   position = vec.s2c(vec.saddaz(vec.c2s(position),math.rad(line.zrot)))
   local topleft = vec.add(origin,position) -- position of top left
-  local topright = vec.sadd(vec.c2s(topleft),vec.saddaz(vec.c2s(top),math.rad(line.zrot)))
-  --local bottomleft = vec.sadd(vec.c2s(topleft),vec.saddaz(vec.c2s(left),math.rad(line.zrot)))
-  --local bottomright = vec.sadd(vec.c2s(topright),vec.saddaz(vec.c2s(left),math.rad(line.zrot)))
   local vertband = vec.saddaz(vec.c2s({0,BandSize+BandOverlap,0}),math.rad(line.zrot))
-  for y = 0,math.floor(line.height/BandSize)-1 do
+  for y = 0,math.floor(vec.len(left)/BandSize)-1 do
+    aegisub.log(0,"y: %d\n",y)
     local tl = vec.sadd(vec.c2s(topleft),vec.sadds(vertband,y*BandSize-(BandSize+BandOverlap)))
     local tr = vec.sadd(vec.c2s(tl),vec.saddaz(vec.c2s(top),math.rad(line.zrot+theta)))
     local br = vec.sadd(vec.c2s(tr),vertband)
@@ -256,7 +254,7 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
     --local cur = math.ceil(i/PerColorLength)
     local color = ""
     for ColorNum,ColorSubTable in pairs(ColorTable) do
-      aegisub.log(0,"%d, %s\n",ColorNum,table.tostring(ColorSubTable))
+      aegisub.log(5,"%d, %s\n",ColorNum,table.tostring(ColorSubTable))
       local CurrPCL = PerColorLength[ColorNum]
       local cur = math.floor(i/CurrPCL)+1 -- because math.ceil(0) == 0
       local red = round(ColorSubTable[cur][1]+(ColorSubTable[cur+1][1]-ColorSubTable[cur][1])*(i%CurrPCL+1)/CurrPCL) -- forward difference
@@ -266,7 +264,7 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
     end
     local alpha = ""
     for AlphaNum,AlphaSubTable in pairs(AlphaTable) do
-      aegisub.log(0,"%d, %s\n",AlphaNum,table.tostring(AlphaSubTable))
+      aegisub.log(5,"%d, %s\n",AlphaNum,table.tostring(AlphaSubTable))
       local CurrPAL = PerAlphaLength[AlphaNum]
       local cur = math.floor(i/CurrPAL)+1 -- because math.ceil(0) == 0
       local calpha = round(AlphaSubTable[cur]+(AlphaSubTable[cur+1]-AlphaSubTable[cur])*(i%CurrPAL+1)/CurrPAL) -- forward difference
