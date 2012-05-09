@@ -69,7 +69,7 @@ patterns = {
 }
 
 vobj = re.compile("{.*?\\\\p1.*?}(.+?)({.*?\\\\p0.*?}|$)")
-comma = re.compile(',')
+period = re.compile('\\.')
 colon = re.compile(':')
 semic = re.compile(';')
 lf = re.compile('\\\\N') -- is double escaping still required?
@@ -81,7 +81,7 @@ function GatherLines(sub,sel)
     local line = sub[sel[x]] -- loop backwards, so subs are added to the select table from last to first.
     if line.class == "dialogue" then
       if line.effect:match("<Ag>%(.-%)") then -- use lua's own pattern matching as much as possible because it's very fast.
-        table.insert(gradlines,{x,line.effect:match("<Ag>%((.-)%)")})
+        table.insert(gradlines,{sel[x],line.effect:match("<Ag>%((.-)%)")})
       end
     end
   end
@@ -99,20 +99,20 @@ function Crunch(sub,sel)
     local all = semic:split(v[2]) -- {color, alpha, options}
     local colour = colon:split(all[1])
     for ii,x in ipairs(colour) do
-      color[ii] = ColorParse(comma:split(x))
+      color[ii] = ColorParse(period:split(x))
     end
     CleanTable(color)
     colour = nil
     if all[2] then
       local alepha = colon:split(all[2])
       for ii,x in ipairs(alepha) do
-        alpha[ii] = comma:split(x)
+        alpha[ii] = period:split(x)
       end
       CleanTable(alpha)
       alepha = nil
     end
     if all[3] then
-      options = comma:split(all[3])
+      options = period:split(all[3])
       CleanTable(options)
     end
     line.num = v[1]
@@ -165,7 +165,7 @@ end
 
 function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   karaskel.preproc_line(sub, OptionsTable.meta, OptionsTable.styles, line)
-  GetInfo(sub, line, OptionsTable.styles, line.num)
+  GetInfo(sub, line, line.num)
   local OptionsTable = OptionsTable or {}
   local l = tonumber(OptionsTable[3]) or 0
   local t = tonumber(OptionsTable[4]) or 0
@@ -209,7 +209,6 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   line.text = line.text:gsub("\\pos%([%-%d%.]+,[%-%d%.]+%)","")
   line.text = line.text:gsub("\\org%([%-%d%.]+,[%-%d%.]+%)","")
   local i = 0
-  local it = 0
   local OriginalText = line.text
   line.height = line.height*line.yscl/100
   line.width = line.width*line.xscl/100
@@ -233,7 +232,6 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   for k,v in pairs(AlphaTable) do
     PerAlphaLength[k] = math.ceil(Length/(#v-1))
   end
-  --local PerColorLength = math.ceil(Length/(#ColorTable-1)) -- transition lengths
   --[[ this is for edges. I plan to switch to a central difference rather than a forward difference for the loop some time eventually.
   ColorTable[0] = table.copy(ColorTable[1])
   ColorTable[#ColorTable+1] = table.copy(ColorTable[#ColorTable]) --]]
@@ -278,6 +276,7 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
     line.text = '{'..color..alpha..string.format("\\clip(%s)\\pos(%.2f,%.2f)}",clip,line.xpos,line.ypos)..line.text
     i = i + 1
     sub.insert(line.num+i,line)
+    line.layer = line.layer + 1
     line.text = OriginalText
   end
 end
@@ -295,9 +294,9 @@ function GetSizeOfVectorObject(vect) -- only works with objects consisting of LI
   return xmax-xmin+2,ymax-ymin+2,0,0 -- pad out by 2px
 end
 
-function GetInfo(sub, line, styles, num) -- because camelcase
+function GetInfo(sub, line, num) -- because camelcase
   for k, v in pairs(header) do
-    line[k] = styles[line.style][v]
+    line[k] = line.styleref[v]
     aegisub.log(5,"Line %d: %s set to %s (from header)\n", num, v, tostring(line[k]))
   end
   if line.bord then line.xbord = tonumber(line.bord); line.ybord = tonumber(line.bord); end
