@@ -94,8 +94,8 @@ function Crunch(sub,sel)
     local alpha = {}
     local options = {}
     local line = sub[v[1]]
-    line.effect = line.effect:gsub("<Ag>%(.-%)","")
     line.comment = true; sub[v[1]] = line; line.comment = false
+    line.effect = line.effect:gsub("<Ag>%(.-%)","")
     local all = semic:split(v[2]) -- {color, alpha, options}
     local colour = colon:split(all[1])
     for ii,x in ipairs(colour) do
