@@ -228,7 +228,7 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   for k,v in pairs(ColorTable) do -- baleet relevant color tags
     line.text = line.text:gsub(string.format("\\\\[%d][cC]&[hH]%%x+&",k),"")
   end
-  if ColorTable[1] then line.text:gsub("\\c&H%x+&","") end
+  if ColorTable[1] then line.text = line.text:gsub("\\[cC]&[hH]%x+&","") end
   local PerColorLength = {}
   for k,v in pairs(ColorTable) do
     PerColorLength[k] = math.ceil(Length/(#v-1))
