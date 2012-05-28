@@ -227,6 +227,12 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   for k,v in pairs(ColorTable) do -- baleet relevant color tags
     line.text = line.text:gsub(string.format("\\\\[%d][cC]&[hH]%%x+&",k),"")
   end
+  for k,v in pairs(AlphaTable) do -- baleet relevant alpha tags
+    line.text = line.text:gsub(string.format("\\\\[%d][aA]&[hH]%%x+&",k),"")
+  end
+  if #AlphaTable > 0
+    line.text = line.text:gsub(string.format("\\\\alpha&[hH]%%x+&",k),"")
+  end
   if ColorTable[1] then line.text = line.text:gsub("\\[cC]&[hH]%x+&","") end
   local OriginalText = line.text
   local PerColorLength = {}
