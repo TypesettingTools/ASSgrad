@@ -209,7 +209,6 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   line.text = line.text:gsub("\\pos%([%-%d%.]+,[%-%d%.]+%)","")
   line.text = line.text:gsub("\\org%([%-%d%.]+,[%-%d%.]+%)","")
   local i = 0
-  local OriginalText = line.text
   line.height = line.height*line.yscl/100
   line.width = line.width*line.xscl/100
   local BandSize = tonumber(OptionsTable[1]) or 4
@@ -229,6 +228,7 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
     line.text = line.text:gsub(string.format("\\\\[%d][cC]&[hH]%%x+&",k),"")
   end
   if ColorTable[1] then line.text = line.text:gsub("\\[cC]&[hH]%x+&","") end
+  local OriginalText = line.text
   local PerColorLength = {}
   for k,v in pairs(ColorTable) do
     PerColorLength[k] = math.ceil(Length/(#v-1))
