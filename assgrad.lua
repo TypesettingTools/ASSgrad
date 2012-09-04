@@ -65,6 +65,8 @@ patterns = {
   ['shad']    = "\\shad([%-%d%.])",
   ['xshad']   = "\\xshad([%-%d%.]+)",
   ['yshad']   = "\\yshad([%-%d%.]+)",
+  ['fax']     = "\\fax([%-%d%.]+)",
+  ['fay']     = "\\fay([%-%d%.]+)",
   ['fs']      = "\\fs([%d%.]+)",  
 }
 
@@ -73,7 +75,7 @@ period = re.compile('\\.')
 colon = re.compile(':')
 semic = re.compile(';')
 lf = re.compile('\\\\N') -- is double escaping still required?
--- <Ag>(1c1,1c2,1c3,1c4:2c:3c:4c;1a1,1a2:2a:3a:4a;bandsize,bandoverlap,l,t,r,b)
+-- <Ag>(1c1.1c2.1c3.1c4:2c:3c:4c;1a1.1a2:2a:3a:4a;bandsize.bandoverlap.l.t.r.b)
 -- options to expose: band overlap, band size, theta (unimplemented)
 function GatherLines(sub,sel)
   local gradlines = {}
@@ -214,12 +216,16 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   local BandSize = tonumber(OptionsTable[1]) or 4
   local BandOverlap = tonumber(OptionsTable[2]) or BandSize -- important for this to be some factor of BandSize, especially if alpha is involved
   local theta = 0 -- need to figure out some math first
-  -- define vectors
-  local origin = {line.xpos, line.ypos, 0}
-  local position = {-line.width*0.5-l,-line.height*0.5+line.descent*0.5-t,0} -- top left corner
-  local left = {0,line.height+t+b,0}
-  local top = {line.width+l+r,0,0}
-  local Length = math.ceil(vec.len(left)/BandSize)
+  --[[ define vectors ]]--
+  local origin = vec:new(line.xpos, line.ypos, 0)
+  local herp = table.copy_deep(line)
+  herp.text = origin:draw()
+  sub.insert(line.num+1,herp)
+  local position = vec:new(-line.width*0.5-l, -line.height*0.5+line.descent*0.5-t, 0) -- top left corner from pos
+  local topleft = position+origin -- vector from origin to the top left
+  local left = vec:new(0, line.height+t+b, 0):addToAzimuth(math.rad(line.zrot))
+  local top = vec:new(line.width+l+r, 0, 0):addToAzimuth(math.rad(line.zrot))
+  local Length = math.ceil(left:getLength()/BandSize)
   local ColorTable = ColorTable or { -- put data in table as rgb for no good reason
     {240,240,240,}; -- nice defaults
     {237,142,183,};
@@ -248,16 +254,15 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   ColorTable[#ColorTable+1] = table.copy(ColorTable[#ColorTable]) --]]
   local ind = 1
   -- rectangular means right = left and bottom = top
-  position = vec.s2c(vec.saddaz(vec.c2s(position),math.rad(line.zrot)))
-  local topleft = vec.add(origin,position) -- position of top left
-  local vertband = vec.saddaz(vec.c2s({0,BandSize+BandOverlap,0}),math.rad(line.zrot))
-  for y = 0,math.floor(vec.len(left)/BandSize)-1 do
+  local vertband = left:unit():setLength(BandSize+BandOverlap)
+  herp.text = vertband:draw(topleft)
+  sub.insert(line.num+1,herp)
+  for y = 0,math.floor(left:getLength()/BandSize)-1 do
     aegisub.log(0,"y: %d\n",y)
-    local tl = vec.sadd(vec.c2s(topleft),vec.sadds(vertband,y*BandSize-(BandSize+BandOverlap)))
-    local tr = vec.sadd(vec.c2s(tl),vec.saddaz(vec.c2s(top),math.rad(line.zrot+theta)))
-    local br = vec.sadd(vec.c2s(tr),vertband)
-    local bl = vec.sadd(vec.c2s(tl),vertband)
-    --local cur = math.ceil(i/PerColorLength)
+    local tl = vertband:copySpherical():addLength(y*BandSize-(BandSize+BandOverlap)):add(topleft)
+    local tr = top:copySpherical():addToAzimuth(math.rad(theta)):add(tl)
+    local br = tr:copySpherical():add(vertband)
+    local bl = tl:copySpherical():add(vertband)
     local color = ""
     for ColorNum,ColorSubTable in pairs(ColorTable) do
       aegisub.log(5,"%d, %s\n",ColorNum,table.tostring(ColorSubTable))
@@ -285,20 +290,109 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
   end
 end
 
-function GetSizeOfVectorObject(vect) -- only works with objects consisting of LINES
+function GetSizeOfVectorObject(vect) -- doesn't actually work with an5 stuff silly me
   local ix, iy = vect:match("^m ([%-%d]+) ([%-%d]+)")
-  local xmin, xmax, ymin, ymax = 0,0,0,0
-  local function normalize(a,b)
-    if tonumber(a)-ix > xmax then xmax = tonumber(a)-ix end
-    if tonumber(a)-ix < xmin then xmin = tonumber(a)-ix end
-    if tonumber(b)-iy > ymax then ymax = tonumber(b)-iy end
-    if tonumber(b)-iy < ymin then ymin = tonumber(b)-iy end
+  ix, iy = tonumber(ix), tonumber(iy)
+  local cursor = {ix, iy}
+  local xmin, xmax, ymin, ymax = ix, iy, ix, iy
+  local function comparex(x)
+    if x > xmax then xmax = x end
+    if x < xmin then xmin = x end
+    aegisub.log(0,'New: xmin: %g, ymin: %g\n',xmin,ymin)
   end
-  vect = vect:gsub("([%-%d]+) ([%-%d]+)",normalize)
+  local function comparey(y)
+    if y > ymax then ymax = y end
+    if y < ymin then ymin = y end
+    aegisub.log(0,'New: xmax: %g, ymax: %g\n',xmax,ymax)
+  end
+  local function linear(str)
+    local errything, a, b = str:match("^(([%-%d]+) *([%-%d]+) *)")
+    aegisub.log(0,("linear: %s; %s %s\n"):format(tostring(errything), tostring(a), tostring(b)))
+    a, b = tonumber(a), tonumber(b)
+    comparex(a); comparey(b)
+    cursor = {a, b}
+    return errything:len()
+  end
+  local function cubic(str)
+    local x, y = {}, {}
+    aegisub.log(0,"Cubic: %s\n",str)
+    local errything
+    x[1], y[1] = cursor[1], cursor[2]
+    errything, x[2],y[2],x[3],y[3],x[4],y[4] = str:match("^(([%-%d]+) *([%-%d]+) *([%-%d]+) *([%-%d]+) *([%-%d]+) *([%-%d]+) *)")
+    aegisub.log(0,("Cubic: %s\n%s\n%s\n"):format(errything,table.tostring(x),table.tostring(y)))
+    for i = 2,4 do
+      x[i], y[i] = tonumber(x[i]), tonumber(y[i])
+    end
+    -- imma just copy some derivatives yep
+    local function cubicmaxima(x)
+      local t = {}
+      if x[4] == x[1]-3*x[2]+3*x[3] then
+        if (x[1]-2*x[2]+x[3]) ~= 0 then -- quadratic case, only one possible maximum/minimum
+          table.insert(t,(x[1]-x[2])/(2*(x[1]-2*x[2]+x[3])))
+        else
+          -- lies on endpoints
+        end
+      else
+        table.insert(t,(math.sqrt(-x[1]*x[3]+x[1]*x[4]+x[2]^2-x[2]*x[3]-x[2]*x[4]+x[3]^2)-x[1]+2*x[2]-x[3])/(-x[1]+3*x[2]-3*x[3]+x[4]))
+        table.insert(t,(-math.sqrt(-x[1]*x[3]+x[1]*x[4]+x[2]^2-x[2]*x[3]-x[2]*x[4]+x[3]^2)-x[1]+2*x[2]-x[3])/(-x[1]+3*x[2]-3*x[3]+x[4]))
+      end
+      return t
+    end
+    local t_x, t_y = cubicmaxima(x), cubicmaxima(y)
+    if t_x then
+      for i,v in ipairs(t_x) do
+        if v >= 0 and v <= 1 then
+          local a = (1-v)^3*x[1]+3*(1-v)^2*v*x[2]+3*(1-v)*v^2*x[3]+v^3*x[4]
+          comparex(a)
+        end
+      end
+    end
+    if t_y then
+      for i,v in ipairs(t_y) do
+        if v >= 0 and v <= 1 then
+          local b = (1-v)^3*y[1]+3*(1-v)^2*v*y[2]+3*(1-v)*v^2*y[3]+v^3*y[4]
+          comparey(b)
+        end
+      end
+    end
+    comparex(x[4]); comparey(y[4])
+    cursor = {x[4], y[4]}
+    return errything:len()
+  end
+  local carrot = 1
+  local command, prevcom
+  while carrot < vect:len() do
+    prevcom = command
+    command = vect:sub(carrot):match("^([bml]) ") -- only care these 3
+    if command then
+      aegisub.log(0,"Command: %s\n",command)
+      carrot = carrot + 2
+      aegisub.log(0,vect:sub(carrot)..'\n')
+      carrot = carrot + ({b = cubic, m = linear, l = linear})[command](vect:sub(carrot))
+    else
+      aegisub.log(0,"No command: %s\n",prevcom)
+      aegisub.log(0,vect:sub(carrot)..'\n')
+      carrot = carrot + ({b = cubic, m = linear, l = linear})[prevcom](vect:sub(carrot))
+      command = prevcom
+    end
+  end
   return xmax-xmin+2,ymax-ymin+2,0,0 -- pad out by 2px
 end
 
-function GetInfo(sub, line, num) -- because camelcase
+function intersect(line1, line2)
+  local a1, b1 = line1[4]-line1[2], line1[1]-line1[3]
+  local c1 = a1*line1[1], b1*line1[2]
+  local a2, b2 = line2[4]-line2[2], line2[1]-line2[3]
+  local c2 = a2*line2[1], b2*line2[2]
+  local det = a1*b2 - a2*b1
+  local x,y
+  if det ~= 0 then
+    x = (b2*c1 - b1*c2)/det
+    y = (a1*c2 - a2*c1)/det
+  end
+end
+
+function GetInfo(sub, line, num) -- because CamelCase
   for k, v in pairs(header) do
     line[k] = line.styleref[v]
     aegisub.log(5,"Line %d: %s set to %s (from header)\n", num, v, tostring(line[k]))
@@ -315,7 +409,6 @@ function GetInfo(sub, line, num) -- because camelcase
   line.trans = {}
   local a = line.text:match("%{(.-)}")
   if a then
-    --aegisub.log(5,"Found a comment/override block in line %d: %s\n",num,a)
     for k, v in pairs(patterns) do
       local _ = a:match(v)
       if _ then 
@@ -328,124 +421,213 @@ function GetInfo(sub, line, num) -- because camelcase
     if not line.clip then
       line.clips, line.clip = a:match("\\(i?clip%([%d]*,?)(.-)%)")
     end
-    --if line.clip then aegisub.log(5,"Clip: (%s%s)\n",line.clips,line.clip) end
     for b in line.text:gmatch("%{(.-)%}") do
       for c in b:gmatch("\\t(%b())") do -- this will return an empty string for t_exp if no exponential factor is specified
         t_start,t_end,t_exp,t_eff = c:sub(2,-2):match("([%-%d]+),([%-%d]+),([%d%.]*),?(.+)")
         if t_exp == "" then t_exp = 1 end -- set it to 1 because stuff and things
         table.insert(line.trans,{tonumber(t_start),tonumber(t_end),tonumber(t_exp),t_eff})
-        --aegisub.log(5,"Line %d: \\t(%g,%g,%g,%s) found\n",num,t_start,t_end,t_exp,t_eff)
       end
     end
     -- have to run it again because of :reasons: related to bad programming
     if line.bord then line.xbord = tonumber(line.bord); line.ybord = tonumber(line.bord); end
     if line.shad then line.xshad = tonumber(line.shad); line.yshad = tonumber(line.shad); end
-  else
-    --aegisub.log(5,"No comment/override block found in line %d\n",num)
   end
 end
 
-vec = {} -- borrow a bunch of vector functions from jfs's raytracer.lua
+vec = {} -- WE GOING ALL OO ON THIS BITCH
+function vec:new(x,y,z,coords) -- create a new vector table with
+  local v = {x or 0, y or 0, z or 0, 1}
+  v.type = ({cartesian = true})[coords or 'cartesian'] or false
+  setmetatable(v,self)
+  self.__index = self
+  return v
+end
 
-vec.null = {0,0,0}
+function vec.zero()
+  return vec:new(0,0,0)
+end
 
 function vec.n(n)
-  return {n,n,n}
+  return vec:new(n,n,n)
 end
 
-function vec.p2d(v) -- return x/y
-  return v[1], v[2]
+function vec:components() -- probably useless
+  return self[1], self[2], self[3]
 end
 
-function vec.p(v)
-  return v[1],v[2],v[3]
+function vec:toSpherical() -- cartesian -> spherical
+  if self.type then
+    local v = {}
+    v[1] = self:getLength() -- radial distance
+    v[2] = math.acos(self[3]/v[1]) -- elevation - corresponds to z (angle measured from the positive z-axis)
+    v[3] = math.atan2(self[2],self[1]) -- azimuth  - corresponds to x and y
+    self[1] = v[1]; self[2] = v[2]; self[3] = v[3]
+    self.type = false
+  end
+  return self
 end
 
-function vec.c2s(v) -- cartesian -> spherical
-  local r = {}
-  r[1] = vec.len(v) -- radial distance
-  r[2] = math.acos(v[3]/r[1]) -- elevation - corresponds to z (angle measured from the positive z-axis)
-  r[3] = math.atan2(v[2],v[1]) -- azimuth  - corresponds to x and y
-  return r
+function vec:copySpherical()
+  if self.type then
+    local v = {}
+    v[1] = self:getLength() -- radial distance
+    v[2] = math.acos(self[3]/v[1]) -- elevation - corresponds to z (angle measured from the positive z-axis)
+    v[3] = math.atan2(self[2],self[1]) -- azimuth  - corresponds to x and y
+    return vec:new(v[1],v[2],v[3],'spherical')
+  else
+    return vec:new(self[1],self[2],self[3],'spherical')
+  end
 end
 
-function vec.s2c(v) -- spherical -> cartesian
-  local r = {}
-  r[1] = v[1]*math.cos(v[3])*math.sin(v[2])
-  r[2] = v[1]*math.sin(v[3])*math.sin(v[2])
-  r[3] = v[1]*math.cos(v[2])
-  return r
+function vec:toCartesian() -- spherical -> cartesian
+  if not self.type then
+    local v = {}
+    v[1] = self[1]*math.cos(self[3])*math.sin(self[2])
+    v[2] = self[1]*math.sin(self[3])*math.sin(self[2])
+    v[3] = self[1]*math.cos(self[2])
+    self[1] = v[1]; self[2] = v[2]; self[3] = v[3]
+    self.type = true
+  end
+  return self
 end
 
-function vec.sadds(v, s) -- add a scalar length
-  return {v[1]+s, v[2], v[3]}
+function vec:copyCartesian()
+  if not self.type then
+    local v = {}
+    v[1] = self[1]*math.cos(self[3])*math.sin(self[2])
+    v[2] = self[1]*math.sin(self[3])*math.sin(self[2])
+    v[3] = self[1]*math.cos(self[2])
+    return vec:new(v[1],v[2],v[3])
+  else
+    return vec:new(self[1],self[2],self[3])
+  end
 end
 
-function vec.saddaz(v, s) -- add to the azimuth
-  return {v[1], v[2], v[3]-s}
+function vec:twoPoints(offset)
+  local offset = offset or vec.zero()
+  return {offset[1], offset[2], self[1]+offset[1], self[2]+offset[2]}
 end
 
-function vec.sadd(v1, v2) -- spherical addition (by converting back into cartesian since I'm cool like that)
-  return vec.add(vec.s2c(v1),vec.s2c(v2)) -- return cartesian
+function vec:getX() -- sugoi lazycode. Hopefully without memory leaks.
+  return (self:copyCartesian())[1]
 end
 
-function vec.add(v1, v2) -- v2 plus v2
-	local r = {}
-	r[1] = v1[1] + v2[1]
-	r[2] = v1[2] + v2[2]
-	r[3] = v1[3] + v2[3]
-	return r
+function vec:getY()
+  return (self:copyCartesian())[2]
 end
 
-function vec.sub(v1, v2) -- v1 minus v2
-	local r = {}
-	r[1] = v1[1] - v2[1]
-	r[2] = v1[2] - v2[2]
-	r[3] = v1[3] - v2[3]
-	return r
+function vec:getZ()
+  return (self:copyCartesian())[3]
 end
 
-function vec.scale(v, s) -- vector times a scalar
-	local r = {}
-	r[1] = v[1] * s
-	r[2] = v[2] * s
-	r[3] = v[3] * s
-	return r
+function vec:getLength() -- vector length
+  if self.type then
+    return math.sqrt(self[1]^2 + self[2]^2 + self[3]^3)
+  else
+    return self[1]
+  end
 end
 
-function vec.len(v) -- vector length
-	return math.sqrt(v[1]*v[1] + v[2]*v[2] + v[3]*v[3])
+function vec:getAzimuth()
+  return (self:copySpherical())[3]
 end
 
-function vec.norm(v) -- unit vector in the direction of vector v
-	local r, il = {}, 1/vec.len(v)
-	r[1] = v[1]*il
-	r[2] = v[2]*il
-	r[3] = v[3]*il
-	return r
+function vec:setLength(length)
+  if self.type then
+    self:toSpherical()
+    self[1] = length
+    self:toCartesian()
+  else
+    self[1] = length
+  end
+  return self
 end
 
-function vec.snorm(v) -- unit vector in the direction of vector v
-	return {1, v[2], v[3]}
+function vec:addLength(length) -- add a scalar length
+  if self.type then
+    self:toSpherical()
+    self[1] = self[1] + length
+    self:toCartesian()
+  else
+    self[1] = self[1] + length
+  end
+  return self
 end
 
-function vec.dot(v1, v2) -- dot product of vectors
-	return v1[1]*v2[1] + v1[2]*v2[2] + v1[3]*v2[3]
+function vec:addToAzimuth(angle,returnSpherical) -- add to the azimuth
+  if self.type then
+    self:toSpherical()
+    self[3] = self[3] - angle
+    self:toCartesian()
+  else
+    self[3] = self[3] - angle
+  end
+  if returnSpherical then self:toSpherical() end
+  return self
 end
 
-function vec.cross(v1, v2) -- v1 cross v2
-	local r = {}
-	r[1] = v1[2]*v2[3] - v1[3]*v2[2]
-	r[2] = v1[1]*v2[3] - v1[3]*v2[1]
-	r[3] = v1[1]*v2[2] - v1[2]*v2[1]
-	return r
+function vec:add(v,returnSpherical) -- self + v
+  self:toCartesian()
+  local a = v:copyCartesian()
+  self[1] = self[1] + a[1]
+  self[2] = self[2] + a[2]
+  self[3] = self[3] + a[3]
+  if returnSpherical then self:toSpherical() end
+  return self
 end
 
-function vec.normal(p1, p2, p3)
-	return vec.cross(vec.sub(p2, p1), vec.sub(p3, p1))
+function vec:sub(v,returnSpherical) -- self - v
+  self:toCartesian()
+  local a = v:copyCartesian()
+  self[1] = self[1] - a[1]
+  self[2] = self[2] - a[2]
+  self[3] = self[3] - a[3]
+  if returnSpherical then self:toSpherical() end
+  return self
 end
 
-function round(num, idp) -- borrowed from the lua-users wiki
+function vec:scale(s,returnSpherical) -- self*s
+  self:toCartesian()
+  local a = v:copyCartesian()
+  self[1] = self[1] * a[1]
+  self[2] = self[2] * a[2]
+  self[3] = self[3] * a[3]
+  if returnSpherical then self:toSpherical() end
+  return self
+end
+
+function vec:unit() -- unit vector in the direction of vector v
+  local il = 1/self:toCartesian():getLength()
+  return vec:new(self[1]*il, self[2]*il, self[3]*il)
+end
+
+function vec:dot(v) -- self*v
+  local a, b = self:copyCartesian(), v:copyCartesian() -- being this lazy is probably very bad
+  return a[1]*b[1] + a[2]*b[2] + a[3]*b[3]
+end
+
+function vec:cross(v) -- selfxv
+  local a, b = self:copyCartesian(), v:copyCartesian()
+  local x = a[2]*b[3] - a[3]*b[2]
+  local y = a[1]*b[3] - a[3]*b[1]
+  local z = a[1]*b[2] - a[2]*b[1]
+  return vec:new(x,y,z)
+end
+
+function vec:draw(offset)
+  local offset = offset or vec.zero()
+  local x1, y1 = offset:getX(), offset:getY()
+  local x2, y2 = self:getX()+x1, self:getY()+y1
+  return ("{\\bord1\\an7\\pos(0,0)\\p1\\3c&H000000&}m %d %d l %d %d"):format(x1,y1,x2,y2)
+end
+
+vec.__add = function(vec1, vec2)
+  local a = vec1:copyCartesian()
+  local b = vec2:copyCartesian()
+  return vec:new(a[1]+b[1],a[2]+b[2],a[3]+b[3])
+end
+
+function round(num, idp)
   local mult = 10^(idp or 0)
   return math.floor(num * mult + 0.5) / mult
 end
