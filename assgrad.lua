@@ -6,7 +6,8 @@ script_author = "torque"
 script_version = "9001"
 require "karaskel"
 require "utils"
-require "re"
+if not pcall(require, "re") then error("Aegisub 3.0.0 or better is required.") end
+if not pcall(require, "debug") then dbg = false end
 
 function cosd(a) return math.cos(math.rad(a)) end
 function acosd(a) return math.deg(math.acos(a)) end
@@ -153,13 +154,13 @@ function ParseColors(ColorTab) --BGR, RGB
 end
 
 function ParseOptions(options)
-  local opts = {'mode','bandSize','bandOverlap','left','top','right','bottom'}
-  local def = {0,4,false,0,0,0,0}
+  local opts = {'mode','bandSize','bandOverlap','theta','left','top','right','bottom'}
+  local def = {0,4,false,0,0,0,0,0}
   for index = 1,#opts do
     options[(opts[index])] = options[index] or def[index]
   end
   options.bandOverlap = options.bandOverlap or options.bandSize
-  log(table.tostring(options)..'\n')
+  debug(table.tostring(options)..'\n')
 end
 
 function MultilineExtents(line)
@@ -212,7 +213,7 @@ function GiantMessyFunction(sub,line,colors,alphas,options)
   local linecopy = table.copy_deep(line)
   linecopy.layer = 999
   linecopy.text = origin:draw()
-  sub.insert(line.num+1,linecopy)
+  --sub.insert(line.num+1,linecopy)
   --log(line.width.." + "..line.xbord.." = "..makePosVec.x[line.ali%3+1](line,options)..'\n')
   local position = vec:new(makePosVec.x[line.ali%3+1](line,options), makePosVec.y[math.ceil(line.ali/3)](line,options), 0):addToAzimuth(math.rad(line.zrot)) -- top left corner from pos
   local topleft = position+origin -- vector from origin to the top left
@@ -244,7 +245,7 @@ function GiantMessyFunction(sub,line,colors,alphas,options)
   -- rectangular means right = left and bottom = top
   local vertband = left:unit():setLength(options.bandSize+options.bandOverlap)
   linecopy.text = position:draw(origin)
-  sub.insert(line.num+1,linecopy)
+  --sub.insert(line.num+1,linecopy)
   local max = math.floor(left:getLength()/options.bandSize)-1
   local cur = 1
   for y = 0, max do
@@ -258,7 +259,7 @@ function GiantMessyFunction(sub,line,colors,alphas,options)
       aegisub.log(5,"%d, %s\n",ColorNum,table.tostring(ColorSubTable))
       local CurrPCL = PerColorLength[ColorNum]
       if i == CurrPCL then i = 0; cur = cur+1 end
-      --aegisub.log(0,'%d - PCL %g; cur %g; pct %g\n',i,CurrPCL,cur,i/CurrPCL)
+      debug('%d - PCL %g; cur %g; pct %g\n',i,CurrPCL,cur,i/CurrPCL)
       local red = round(interpolate(i/CurrPCL,ColorSubTable[cur][1],ColorSubTable[cur+1][1]))
       local gre = round(interpolate(i/CurrPCL,ColorSubTable[cur][2],ColorSubTable[cur+1][2]))
       local blu = round(interpolate(i/CurrPCL,ColorSubTable[cur][3],ColorSubTable[cur+1][3]))
@@ -650,8 +651,10 @@ function table.tostring(t)
   end
 end
 
-function log(str,...)
-  aegisub.log(0,str,...)
+function debug(...)
+  if dbg then
+    aegisub.log(0,...)
+  end
 end
 
 aegisub.register_macro("ULTIMATE SUPERGRADIENT","GRAD YOUR ASS LIKE NEVER BEFORE", GatherLines)
