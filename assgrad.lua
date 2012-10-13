@@ -5,6 +5,7 @@ script_description = "THE ULTIMATE METHOD OF SCRIPT BLOATING HAS FINALLY ARRIVED
 script_author = "torque"
 script_version = "9001"
 require "karaskel"
+require "utils"
 require "re"
 
 function cosd(a) return math.cos(math.rad(a)) end
@@ -14,30 +15,17 @@ function asind(a) return math.deg(math.asin(a)) end
 function tand(a) return math.tan(math.rad(a)) end
 function atan2d(y,x) return math.deg(math.atan2(y,x)) end
 
-fix = {}
-
-fix.ali = {
-  function(x,y,w,h,a) local r = w/2 return x+r*cosd(a)-h/2*sind(a), y-r*sind(a)-h/2*cosd(a) end; -- 1
-  function(x,y,w,h,a) local r = h/2 return x-r*sind(a), y-r*cosd(a) end;                         -- 2
-  function(x,y,w,h,a) local r = w/2 return x-r*cosd(a)-h/2*sind(a), y+r*sind(a)-h/2*cosd(a) end; -- 3
-  function(x,y,w,h,a) local r = w/2 return x+r*cosd(a), y-r*sind(a) end;                         -- 4
-  function(x,y,w,h,a) return x, y end;                                                           -- 5
-  function(x,y,w,h,a) local r = w/2 return x-r*cosd(a), y+r*sind(a) end;                         -- 6
-  function(x,y,w,h,a) local r = w/2 return x+r*cosd(a)+h/2*sind(a), y-r*sind(a)+h/2*cosd(a) end; -- 7
-  function(x,y,w,h,a) local r = h/2 return x+r*sind(a), y+r*cosd(a) end;                         -- 8
-  function(x,y,w,h,a) local r = w/2 return x-r*cosd(a)+h/2*sind(a), y+r*sind(a)+h/2*cosd(a) end; -- 9
-}
-
-fix.xpos = {
-  function(sx,l,r) return sx-r end;
-  function(sx,l,r) return l    end;
-  function(sx,l,r) return sx/2 end;
-}
-
-fix.ypos = {
-  function(sy,v) return sy-v end;
-  function(sy,v) return sy/2 end;
-  function(sy,v) return v    end;
+fix = {
+  xpos = {
+    function(sx,l,r) return sx-r end;
+    function(sx,l,r) return l    end;
+    function(sx,l,r) return sx/2 end;
+  },
+  ypos = {
+    function(sy,v) return sy-v end;
+    function(sy,v) return sy/2 end;
+    function(sy,v) return v    end;
+  }
 }
 
 header = {
@@ -75,13 +63,14 @@ period = re.compile('\\.')
 colon = re.compile(':')
 semic = re.compile(';')
 lf = re.compile('\\\\N') -- is double escaping still required?
--- <Ag>(1c1.1c2.1c3.1c4:2c:3c:4c;1a1.1a2:2a:3a:4a;bandsize.bandoverlap.l.t.r.b)
+-- <Ag>(1c1.1c2.1c3.1c4:2c:3c:4c;1a1.1a2:2a:3a:4a;mode.bandSize.bandOverlap.theta.l.t.r.b)
 -- options to expose: band overlap, band size, theta (unimplemented)
 function GatherLines(sub,sel)
   local gradlines = {}
   for x = #sel,1,-1 do
     local line = sub[sel[x]] -- loop backwards, so subs are added to the select table from last to first.
     if line.class == "dialogue" then
+      local _,com = line.effect:match("<Ag>%((.-)%)")
       if line.effect:match("<Ag>%(.-%)") then -- use lua's own pattern matching as much as possible because it's very fast.
         table.insert(gradlines,{sel[x],line.effect:match("<Ag>%((.-)%)")})
       end
@@ -101,7 +90,7 @@ function Crunch(sub,sel)
     local all = semic:split(v[2]) -- {color, alpha, options}
     local colour = colon:split(all[1])
     for ii,x in ipairs(colour) do
-      color[ii] = ColorParse(period:split(x))
+      color[ii] = ParseColors(period:split(x))
     end
     CleanTable(color)
     colour = nil
@@ -117,6 +106,7 @@ function Crunch(sub,sel)
       options = period:split(all[3])
       CleanTable(options)
     end
+    ParseOptions(options)
     line.num = v[1]
     options.meta, options.styles = karaskel.collect_head(sub,false)
     GiantMessyFunction(sub,line,color,alpha,options)
@@ -125,156 +115,157 @@ end
 
 function CleanTable(tabel)
   for i,v in ipairs(tabel) do -- should be sequential integer indices
-    aegisub.log(0,"%d, %s - %s\n",i,table.tostring(v),tostring(#v))
+    aegisub.log(4,"%d, %s - %s\n",i,table.tostring(v),tostring(#v))
     if v == "" or #v == 0 then
-      aegisub.log(0,"baleeted\n")
+      aegisub.log(4,"baleeted\n")
       tabel[i] = nil
     end -- strip out blank entries - we can't use "skip empty" when splitting because it's order dependent.
   end
 end
 
-function ColorParse(ColorTab) --BGR, RGB
+--[=[ {
+  {
+    {0,0,0},
+    {120,120,120},
+  },
+  {
+    {5,10,15},
+    {255,255,255},
+  }, ...etc
+} 
+-> color[1][1] == first color of first-color gradient
+--]=]
+
+function ParseColors(ColorTab) --BGR, RGB
   local ReturnTab = {}
   for i,v in ipairs(ColorTab) do
     if v:match("^&H") then
       local b,g,r = v:match("^&H(%x%x)(%x%x)(%x%x)&")
-      aegisub.log(0,"%s,%s,%s\n",r,g,b)
+      aegisub.log(4,"%s,%s,%s\n",r,g,b)
       table.insert(ReturnTab,{tonumber(r,16),tonumber(g,16),tonumber(b,16)})
     else
       local r,g,b = v:match("^#?(%x%x)(%x%x)(%x%x)")
-      aegisub.log(0,"%s,%s,%s\n",r,g,b)
+      aegisub.log(4,"%s,%s,%s\n",r,g,b)
       table.insert(ReturnTab,{tonumber(r,16),tonumber(g,16),tonumber(b,16)})
     end
   end
   return ReturnTab
 end
 
+function ParseOptions(options)
+  local opts = {'mode','bandSize','bandOverlap','left','top','right','bottom'}
+  local def = {0,4,false,0,0,0,0}
+  for index = 1,#opts do
+    options[(opts[index])] = options[index] or def[index]
+  end
+  options.bandOverlap = options.bandOverlap or options.bandSize
+  log(table.tostring(options)..'\n')
+end
+
 function MultilineExtents(line)
-  local SplitTable = lf:split(line.text:gsub("{.-}","")) -- I don't remember if text_stripped gets rid of linebreaks
+  local SplitTable = lf:split(line.text_stripped)
   local height, width, desc, ext = 0,0,0,0
   line.styleref.scale_y = 100 -- line.yscl
   line.styleref.scale_x = 100 -- line.xscl
   line.styleref.fontname = line.fn or style.fontname -- avoid setting to nil
   line.styleref.fontsize = line.fs or style.fontsize
   for i,v in ipairs(SplitTable) do
-    local h,w,d,e = aegisub.text_extents(line.styleref,v)
+    local w,h,d,e = aegisub.text_extents(line.styleref,v)
     height = height + h + d -- each line includes descent
     if w > width then width = w end
-    desc,ext = d,e
+    desc, ext = d, e
   end
-  return height, width, desc, ext
+  height = height - desc -- subtract last descender off
+  return width, height, desc, ext
 end
 
-function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
-  karaskel.preproc_line(sub, OptionsTable.meta, OptionsTable.styles, line)
-  GetInfo(sub, line, line.num)
-  local OptionsTable = OptionsTable or {}
-  local l = tonumber(OptionsTable[3]) or 0
-  local t = tonumber(OptionsTable[4]) or 0
-  local r = tonumber(OptionsTable[5]) or 0
-  local b = tonumber(OptionsTable[6]) or 0
-  aegisub.log(0,("l: %d t: %d r: %d b: %d\n"):format(l,t,r,b))
-  local strs = vobj:match(line.text)
-  if strs then
-    line.width, line.height, line.descent, line.extlead = GetSizeOfVectorObject(strs[2].str)
-  else
-    line.width, line.height, line.descent, line.extlead = MultilineExtents(line) -- handle linebreaks
-  end
-  line.height = line.height + 2*line.bord
-  line.width = line.width + 2*line.bord
-  line.height = line.height - line.descent/2
-  if line.margin_v ~= 0 then line._v = line.margin_v end
-  if line.margin_l ~= 0 then line._l = line.margin_l end
-  if line.margin_r ~= 0 then line._r = line.margin_r end
-  if not line.xpos then
-    line.xpos = fix.xpos[line.ali%3+1](OptionsTable.meta.res_x,line._l,line._r)
-    line.ypos = fix.ypos[math.ceil(line.ali/3)](OptionsTable.meta.res_y,line._v)
-  end
-  if not line.xorg then
-    line.xorg = line.xpos
-    line.yorg = line.ypos
-  end
+makePosVec = {
+  x = {
+    function(line,options) return line.xbord-(line.width+options.left) end, -- 3,6,9
+    function(line,options) return -(options.left+line.xbord) end, -- 1,4,7
+    function(line,options) return -(line.width*0.5+options.left) end, -- 2,5,8
+  },
+  y = {
+    function(line,options) return line.ybord-(line.height+options.top) end, -- 1,2,3
+    function(line,options) return line.descent*0.5-(line.height*0.5+options.top) end, -- 4,5,6
+    function(line,options) return -(options.top+line.ybord) end, -- 7,8,9
+  }
+}
+
+function GiantMessyFunction(sub,line,colors,alphas,options)
+  karaskel.preproc_line(sub, options.meta, options.styles, line)
+  GetInfo(line,options)
   local xd = line.xpos - line.xorg
   local yd = line.ypos - line.yorg
   local rad = math.sqrt(xd^2+yd^2)
   local alpha = atan2d(yd,xd)
-  line.xpos = line.xorg + rad *cosd(alpha-line.zrot)
-  line.ypos = line.yorg + rad *sind(alpha-line.zrot) --]]
-  line.xpos,line.ypos = fix.ali[line.ali](line.xpos,line.ypos,line.width*line.xscl/100,line.height*line.yscl/100,line.zrot)
-  if line.ali ~= 5 then
-    if line.text:match("\\an[1-9]") then
-      line.text = line.text:gsub("\\an[1-9]","\\an5")
-    else
-      line.text = "{\\an5}"..line.text
-    end
-  end
+  line.xpos = line.xorg + rad*cosd(alpha-line.zrot)
+  line.ypos = line.yorg + rad*sind(alpha-line.zrot) --]]
   line.text = line.text:gsub("\\pos%([%-%d%.]+,[%-%d%.]+%)","")
   line.text = line.text:gsub("\\org%([%-%d%.]+,[%-%d%.]+%)","")
   local i = 0
   line.height = line.height*line.yscl/100
   line.width = line.width*line.xscl/100
-  local BandSize = tonumber(OptionsTable[1]) or 4
-  local BandOverlap = tonumber(OptionsTable[2]) or BandSize -- important for this to be some factor of BandSize, especially if alpha is involved
   local theta = 0 -- need to figure out some math first
   --[[ define vectors ]]--
   local origin = vec:new(line.xpos, line.ypos, 0)
-  local herp = table.copy_deep(line)
-  herp.text = origin:draw()
-  sub.insert(line.num+1,herp)
-  local position = vec:new(-line.width*0.5-l, -line.height*0.5+line.descent*0.5-t, 0) -- top left corner from pos
+  local linecopy = table.copy_deep(line)
+  linecopy.layer = 999
+  linecopy.text = origin:draw()
+  sub.insert(line.num+1,linecopy)
+  --log(line.width.." + "..line.xbord.." = "..makePosVec.x[line.ali%3+1](line,options)..'\n')
+  local position = vec:new(makePosVec.x[line.ali%3+1](line,options), makePosVec.y[math.ceil(line.ali/3)](line,options), 0):addToAzimuth(math.rad(line.zrot)) -- top left corner from pos
   local topleft = position+origin -- vector from origin to the top left
-  local left = vec:new(0, line.height+t+b, 0):addToAzimuth(math.rad(line.zrot))
-  local top = vec:new(line.width+l+r, 0, 0):addToAzimuth(math.rad(line.zrot))
-  local Length = math.ceil(left:getLength()/BandSize)
-  local ColorTable = ColorTable or { -- put data in table as rgb for no good reason
-    {240,240,240,}; -- nice defaults
-    {237,142,183,};
-  }
-  for k,v in pairs(ColorTable) do -- baleet relevant color tags
+  local left = vec:new(0, line.height+options.top+options.bottom, 0):addToAzimuth(math.rad(line.zrot))
+  local top = vec:new(line.width+options.left+options.right, 0, 0):addToAzimuth(math.rad(line.zrot))
+  local Length = math.floor(left:getLength()/options.bandSize)
+  for k,v in pairs(colors) do -- baleet relevant color tags
     line.text = line.text:gsub(string.format("\\\\[%d][cC]&[hH]%%x+&",k),"")
   end
-  for k,v in pairs(AlphaTable) do -- baleet relevant alpha tags
+  for k,v in pairs(alphas) do -- baleet relevant alpha tags
     line.text = line.text:gsub(string.format("\\\\[%d][aA]&[hH]%%x+&",k),"")
   end
-  if #AlphaTable > 0 then
+  if #alphas > 0 then
     line.text = line.text:gsub(string.format("\\\\alpha&[hH]%%x+&",k),"")
   end
-  if ColorTable[1] then line.text = line.text:gsub("\\[cC]&[hH]%x+&","") end
+  if colors[1] then line.text = line.text:gsub("\\[cC]&[hH]%x+&","") end
   local OriginalText = line.text
   local PerColorLength = {}
-  for k,v in pairs(ColorTable) do
-    PerColorLength[k] = math.ceil(Length/(#v-1))
+  for ColorNum,SubTable in pairs(colors) do
+    PerColorLength[ColorNum] = math.floor(Length/(#SubTable-1)) -- number of steps per color
+    SubTable[0] = table.copy(SubTable[1])
+    SubTable[#SubTable+1] = table.copy(SubTable[#SubTable])
   end
   local PerAlphaLength = {}
-  for k,v in pairs(AlphaTable) do
+  for k,v in pairs(alphas) do
     PerAlphaLength[k] = math.ceil(Length/(#v-1))
   end
-  --[[ this is for edges. I plan to switch to a central difference rather than a forward difference for the loop some time eventually.
-  ColorTable[0] = table.copy(ColorTable[1])
-  ColorTable[#ColorTable+1] = table.copy(ColorTable[#ColorTable]) --]]
   local ind = 1
   -- rectangular means right = left and bottom = top
-  local vertband = left:unit():setLength(BandSize+BandOverlap)
-  herp.text = vertband:draw(topleft)
-  sub.insert(line.num+1,herp)
-  for y = 0,math.floor(left:getLength()/BandSize)-1 do
-    aegisub.log(0,"y: %d\n",y)
-    local tl = vertband:copySpherical():addLength(y*BandSize-(BandSize+BandOverlap)):add(topleft)
+  local vertband = left:unit():setLength(options.bandSize+options.bandOverlap)
+  linecopy.text = position:draw(origin)
+  sub.insert(line.num+1,linecopy)
+  local max = math.floor(left:getLength()/options.bandSize)-1
+  local cur = 1
+  for y = 0, max do
+    aegisub.log(4,"y: %d\n",y)
+    local tl = vertband:copySpherical():addLength(y*options.bandSize-(options.bandSize+options.bandOverlap)):add(topleft)
     local tr = top:copySpherical():addToAzimuth(math.rad(theta)):add(tl)
     local br = tr:copySpherical():add(vertband)
     local bl = tl:copySpherical():add(vertband)
-    local color = ""
-    for ColorNum,ColorSubTable in pairs(ColorTable) do
+    local color = "";
+    for ColorNum,ColorSubTable in pairs(colors) do
       aegisub.log(5,"%d, %s\n",ColorNum,table.tostring(ColorSubTable))
       local CurrPCL = PerColorLength[ColorNum]
-      local cur = math.floor(i/CurrPCL)+1 -- because math.ceil(0) == 0
-      local red = round(ColorSubTable[cur][1]+(ColorSubTable[cur+1][1]-ColorSubTable[cur][1])*(i%CurrPCL+1)/CurrPCL) -- forward difference
-      local gre = round(ColorSubTable[cur][2]+(ColorSubTable[cur+1][2]-ColorSubTable[cur][2])*(i%CurrPCL+1)/CurrPCL)
-      local blu = round(ColorSubTable[cur][3]+(ColorSubTable[cur+1][3]-ColorSubTable[cur][3])*(i%CurrPCL+1)/CurrPCL)
+      if i == CurrPCL then i = 0; cur = cur+1 end
+      --aegisub.log(0,'%d - PCL %g; cur %g; pct %g\n',i,CurrPCL,cur,i/CurrPCL)
+      local red = round(interpolate(i/CurrPCL,ColorSubTable[cur][1],ColorSubTable[cur+1][1]))
+      local gre = round(interpolate(i/CurrPCL,ColorSubTable[cur][2],ColorSubTable[cur+1][2]))
+      local blu = round(interpolate(i/CurrPCL,ColorSubTable[cur][3],ColorSubTable[cur+1][3]))
       color = color..string.format("\\%dc&H%02X%02X%02X&",ColorNum,blu,gre,red) -- \c tags are in BGR order
     end
     local alpha = ""
-    for AlphaNum,AlphaSubTable in pairs(AlphaTable) do
+    for AlphaNum,AlphaSubTable in pairs(alphas) do
       aegisub.log(5,"%d, %s\n",AlphaNum,table.tostring(AlphaSubTable))
       local CurrPAL = PerAlphaLength[AlphaNum]
       local cur = math.floor(i/CurrPAL)+1 -- because math.ceil(0) == 0
@@ -282,9 +273,9 @@ function GiantMessyFunction(sub,line,ColorTable,AlphaTable,OptionsTable)
       alpha = alpha..string.format("\\%da&H%02X&",AlphaNum,calpha)
     end
     local clip = string.format("m %.0f %.0f l %.0f %.0f %.0f %.0f %.0f %.0f",tl[1],tl[2],tr[1],tr[2],br[1],br[2],bl[1],bl[2])
-    line.text = '{'..color..alpha..string.format("\\clip(%s)\\pos(%.2f,%.2f)}",clip,line.xpos,line.ypos)..line.text
+    line.text = '{'..color..alpha..string.format("\\clip(%s)}",clip)..line.text
     i = i + 1
-    sub.insert(line.num+i,line)
+    sub.insert(line.num+1,line)
     line.layer = line.layer + 1
     line.text = OriginalText
   end
@@ -296,30 +287,35 @@ function GetSizeOfVectorObject(vect) -- doesn't actually work with an5 stuff sil
   local cursor = {ix, iy}
   local xmin, xmax, ymin, ymax = ix, iy, ix, iy
   local function comparex(x)
-    if x > xmax then xmax = x end
-    if x < xmin then xmin = x end
-    aegisub.log(0,'New: xmin: %g, ymin: %g\n',xmin,ymin)
+    if x > xmax then
+      xmax = x; aegisub.log(4,'New: xmax: %g\n',xmax)
+    end
+    if x < xmin then
+      xmin = x; aegisub.log(4,'New: xmin: %g',xmin)
+    end
   end
   local function comparey(y)
-    if y > ymax then ymax = y end
-    if y < ymin then ymin = y end
-    aegisub.log(0,'New: xmax: %g, ymax: %g\n',xmax,ymax)
+    if y > ymax then
+      ymax = y; aegisub.log(4,'New: ymax: %g\n',ymax)
+    end
+    if y < ymin then
+      ymin = y; aegisub.log(4,'New: ymin: %g',ymin)
+    end
   end
   local function linear(str)
-    local errything, a, b = str:match("^(([%-%d]+) *([%-%d]+) *)")
-    aegisub.log(0,("linear: %s; %s %s\n"):format(tostring(errything), tostring(a), tostring(b)))
-    a, b = tonumber(a), tonumber(b)
-    comparex(a); comparey(b)
+    local all, a, b = str:match("^(([%-%d]+) *([%-%d]+) *)")
+    aegisub.log(4,'linear: %s %s\n',a,b)
+    a,b = tonumber(a), tonumber(b)
     cursor = {a, b}
-    return errything:len()
+    comparey(b); comparex(a)
+    return all:len()
   end
   local function cubic(str)
     local x, y = {}, {}
-    aegisub.log(0,"Cubic: %s\n",str)
-    local errything
+    local all
     x[1], y[1] = cursor[1], cursor[2]
-    errything, x[2],y[2],x[3],y[3],x[4],y[4] = str:match("^(([%-%d]+) *([%-%d]+) *([%-%d]+) *([%-%d]+) *([%-%d]+) *([%-%d]+) *)")
-    aegisub.log(0,("Cubic: %s\n%s\n%s\n"):format(errything,table.tostring(x),table.tostring(y)))
+    all, x[2],y[2],x[3],y[3],x[4],y[4] = str:match("^(([%-%d]+) *([%-%d]+) *([%-%d]+) *([%-%d]+) *([%-%d]+) *([%-%d]+) *)")
+    aegisub.log(4,'Cubic: %s %s %s %s %s %s\n',x[2],y[2],x[3],y[3],x[4],y[4])
     for i = 2,4 do
       x[i], y[i] = tonumber(x[i]), tonumber(y[i])
     end
@@ -329,8 +325,6 @@ function GetSizeOfVectorObject(vect) -- doesn't actually work with an5 stuff sil
       if x[4] == x[1]-3*x[2]+3*x[3] then
         if (x[1]-2*x[2]+x[3]) ~= 0 then -- quadratic case, only one possible maximum/minimum
           table.insert(t,(x[1]-x[2])/(2*(x[1]-2*x[2]+x[3])))
-        else
-          -- lies on endpoints
         end
       else
         table.insert(t,(math.sqrt(-x[1]*x[3]+x[1]*x[4]+x[2]^2-x[2]*x[3]-x[2]*x[4]+x[3]^2)-x[1]+2*x[2]-x[3])/(-x[1]+3*x[2]-3*x[3]+x[4]))
@@ -357,7 +351,7 @@ function GetSizeOfVectorObject(vect) -- doesn't actually work with an5 stuff sil
     end
     comparex(x[4]); comparey(y[4])
     cursor = {x[4], y[4]}
-    return errything:len()
+    return all:len()
   end
   local carrot = 1
   local command, prevcom
@@ -365,13 +359,13 @@ function GetSizeOfVectorObject(vect) -- doesn't actually work with an5 stuff sil
     prevcom = command
     command = vect:sub(carrot):match("^([bml]) ") -- only care these 3
     if command then
-      aegisub.log(0,"Command: %s\n",command)
+      aegisub.log(4,"Command: %s\n",command)
       carrot = carrot + 2
-      aegisub.log(0,vect:sub(carrot)..'\n')
+      aegisub.log(4,vect:sub(carrot)..'\n')
       carrot = carrot + ({b = cubic, m = linear, l = linear})[command](vect:sub(carrot))
     else
-      aegisub.log(0,"No command: %s\n",prevcom)
-      aegisub.log(0,vect:sub(carrot)..'\n')
+      aegisub.log(4,"No command: %s\n",prevcom)
+      aegisub.log(4,vect:sub(carrot)..'\n')
       carrot = carrot + ({b = cubic, m = linear, l = linear})[prevcom](vect:sub(carrot))
       command = prevcom
     end
@@ -392,20 +386,18 @@ function intersect(line1, line2)
   end
 end
 
-function GetInfo(sub, line, num) -- because CamelCase
+function GetInfo(line,options) -- because CamelCase
   for k, v in pairs(header) do
     line[k] = line.styleref[v]
-    aegisub.log(5,"Line %d: %s set to %s (from header)\n", num, v, tostring(line[k]))
+    aegisub.log(5,"Line %d: %s set to %s (from header)\n", line.num, v, tostring(line[k]))
   end
   if line.bord then line.xbord = tonumber(line.bord); line.ybord = tonumber(line.bord); end
   if line.shad then line.xshad = tonumber(line.shad); line.yshad = tonumber(line.shad); end
-  if line.text:match("\\pos%([%-%d%.]+,[%-%d%.]+%)") then
-    line.xpos, line.ypos = line.text:match("\\pos%(([%-%d%.]+),([%-%d%.]+)%)")
-    line.xorg, line.yorg = line.xpos, line.ypos
-  end
-  if line.text:match("\\org%(([%-%d%.]+),([%-%d%.]+)%)") then
-    line.xorg, line.yorg = line.text:match("\\org%(([%-%d%.]+),([%-%d%.]+)%)")
-  end
+  line.xpos, line.ypos = line.text:match("\\pos%(([%-%d%.]+),([%-%d%.]+)%)")
+  line.xorg, line.yorg = line.text:match("\\org%(([%-%d%.]+),([%-%d%.]+)%)")
+  if line.margin_v ~= 0 then line._v = line.margin_v end
+  if line.margin_l ~= 0 then line._l = line.margin_l end
+  if line.margin_r ~= 0 then line._r = line.margin_r end
   line.trans = {}
   local a = line.text:match("%{(.-)}")
   if a then
@@ -413,25 +405,29 @@ function GetInfo(sub, line, num) -- because CamelCase
       local _ = a:match(v)
       if _ then 
         line[k] = tonumber(_)
-        aegisub.log(5,"Line %d: %s set to %s\n",num,k,tostring(_))
+        aegisub.log(5,"Line %d: %s set to %g\n",line.num,k,_)
       end
     end
     if a:match("\\fn([^\\}]+)") then line.fn = a:match("\\fn([^\\}]+)") end
-    line.clips, line.clip = a:match("\\(i?clip%()([%-%d]+,[%-%d]+,[%-%d]+,[%-%d]+)%)") -- hum
-    if not line.clip then
-      line.clips, line.clip = a:match("\\(i?clip%([%d]*,?)(.-)%)")
-    end
-    for b in line.text:gmatch("%{(.-)%}") do
-      for c in b:gmatch("\\t(%b())") do -- this will return an empty string for t_exp if no exponential factor is specified
-        t_start,t_end,t_exp,t_eff = c:sub(2,-2):match("([%-%d]+),([%-%d]+),([%d%.]*),?(.+)")
-        if t_exp == "" then t_exp = 1 end -- set it to 1 because stuff and things
-        table.insert(line.trans,{tonumber(t_start),tonumber(t_end),tonumber(t_exp),t_eff})
-      end
-    end
-    -- have to run it again because of :reasons: related to bad programming
     if line.bord then line.xbord = tonumber(line.bord); line.ybord = tonumber(line.bord); end
     if line.shad then line.xshad = tonumber(line.shad); line.yshad = tonumber(line.shad); end
   end
+  local strs = vobj:match(line.text)
+  if strs then
+    line.isVector = true
+    line.width, line.height, line.descent, line.extlead = GetSizeOfVectorObject(strs[2].str)
+  else
+    line.width, line.height, line.descent, line.extlead = MultilineExtents(line) -- handle linebreaks
+  end
+  if not line.xpos then
+    line.xpos = fix.xpos[line.ali%3+1](options.meta.res_x,line._l,line._r)
+    line.ypos = fix.ypos[math.ceil(line.ali/3)](options.meta.res_y,line._v)
+  end
+  if not line.xorg then
+    line.xorg, line.yorg = line.xpos, line.ypos
+  end
+  line.width = line.width + line.xbord*2
+  line.height = (line.height + line.ybord*2) - line.descent/2
 end
 
 vec = {} -- WE GOING ALL OO ON THIS BITCH
@@ -652,6 +648,10 @@ function table.tostring(t)
     end
     return '{'..s..'}'
   end
+end
+
+function log(str,...)
+  aegisub.log(0,str,...)
 end
 
 aegisub.register_macro("ULTIMATE SUPERGRADIENT","GRAD YOUR ASS LIKE NEVER BEFORE", GatherLines)
