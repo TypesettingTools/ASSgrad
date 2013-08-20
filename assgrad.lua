@@ -6,8 +6,10 @@ script_author = "torque"
 script_version = "9001"
 require "karaskel"
 require "utils"
-if not pcall(require, "re") then error("Aegisub 3.0.0 or better is required.") end
-if not pcall(require, "debug") then dbg = false end
+local success, re = pcall(require, "aegisub.re")
+if not (success) then
+  re = require(aegisub.decode_path("?data/automation/include/re.lua"))
+end
 
 function cosd(a) return math.cos(math.rad(a)) end
 function acosd(a) return math.deg(math.acos(a)) end
@@ -44,26 +46,26 @@ header = {
 }
 
 patterns = {
-  ['xscl']    = "\\fscx([%d%.]+)",
-  ['yscl']    = "\\fscy([%d%.]+)",
-  ['ali']     = "\\an([1-9])",
-  ['zrot']    = "\\frz?([%-%d%.]+)",
-  ['bord']    = "\\bord([%d%.]+)",
-  ['xbord']   = "\\xbord([%d%.]+)",
-  ['ybord']   = "\\ybord([%d%.]+)",
-  ['shad']    = "\\shad([%-%d%.])",
-  ['xshad']   = "\\xshad([%-%d%.]+)",
-  ['yshad']   = "\\yshad([%-%d%.]+)",
-  ['fax']     = "\\fax([%-%d%.]+)",
-  ['fay']     = "\\fay([%-%d%.]+)",
-  ['fs']      = "\\fs([%d%.]+)",  
+  ['xscl']    = [[\fscx([%d%.]+)]],
+  ['yscl']    = [[\fscy([%d%.]+)]],
+  ['ali']     = [[\an([1-9])]],
+  ['zrot']    = [[\frz?([%-%d%.]+)]],
+  ['bord']    = [[\bord([%d%.]+)]],
+  ['xbord']   = [[\xbord([%d%.]+)]],
+  ['ybord']   = [[\ybord([%d%.]+)]],
+  ['shad']    = [[\shad([%-%d%.])]],
+  ['xshad']   = [[\xshad([%-%d%.]+)]],
+  ['yshad']   = [[\yshad([%-%d%.]+)]],
+  ['fax']     = [[\fax([%-%d%.]+)]],
+  ['fay']     = [[\fay([%-%d%.]+)]],
+  ['fs']      = [[\fs([%d%.]+)]],
 }
 
-vobj = re.compile("{.*?\\\\p1.*?}(.+?)({.*?\\\\p0.*?}|$)")
-period = re.compile('\\.')
+vobj = re.compile([[\{.*?\\p1.*?\}(.+?)(\{.*?\\p0.*?\}|$)]])
+period = re.compile([[\.]])
 colon = re.compile(':')
 semic = re.compile(';')
-lf = re.compile('\\\\N') -- is double escaping still required?
+lf = re.compile([[\\N]])
 -- <Ag>(1c1.1c2.1c3.1c4:2c:3c:4c;1a1.1a2:2a:3a:4a;mode.bandSize.bandOverlap.theta.l.t.r.b)
 -- options to expose: band overlap, band size, theta (unimplemented)
 function GatherLines(sub,sel)
@@ -133,7 +135,7 @@ end
     {5,10,15},
     {255,255,255},
   }, ...etc
-} 
+}
 -> color[1][1] == first color of first-color gradient
 --]=]
 
@@ -404,7 +406,7 @@ function GetInfo(line,options) -- because CamelCase
   if a then
     for k, v in pairs(patterns) do
       local _ = a:match(v)
-      if _ then 
+      if _ then
         line[k] = tonumber(_)
         aegisub.log(5,"Line %d: %s set to %g\n",line.num,k,_)
       end
